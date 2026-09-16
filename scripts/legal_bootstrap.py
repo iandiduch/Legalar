@@ -43,16 +43,21 @@ logger = logging.getLogger("legal_bootstrap")
 
 # Catálogo de leyes troncales del ordenamiento jurídico argentino
 PRIORITY_LAWS = [
-    "LEY-24430",  # Constitución de la Nación Argentina
-    "LEY-26994",  # Código Civil y Comercial de la Nación
-    "LEY-19550",  # Ley General de Sociedades
-    "LEY-20744",  # Ley de Contrato de Trabajo
-    "LEY-24240",  # Ley de Defensa del Consumidor
-    "LEY-11179",  # Código Penal de la Nación
-    "LEY-24522",  # Ley de Concursos y Quiebras
-    "LEY-27442",  # Ley de Defensa de la Competencia
-    "DNU-70-2023", # DNU Bases para la Reconstrucción de la Economía Argentina
-    "LEY-27742",  # Ley de Bases y Puntos de Partida para la Libertad de los Argentinos
+    "LEY-24430",   # Constitución de la Nación Argentina
+    "LEY-26994",   # Código Civil y Comercial de la Nación
+    "DEC-390-1976", # Ley de Contrato de Trabajo (LCT - Texto Ordenado 1976 vigente, incluye Art. 245)
+    "LEY-20744",   # Ley de Contrato de Trabajo (Sanción histórica originaria 1974)
+    "LEY-19550",   # Ley General de Sociedades
+    "LEY-24240",   # Ley de Defensa del Consumidor
+    "LEY-11179",   # Código Penal de la Nación
+    "LEY-24522",   # Ley de Concursos y Quiebras
+    "LEY-27442",   # Ley de Defensa de la Competencia
+    "DNU-70-2023",  # DNU Bases para la Reconstrucción de la Economía Argentina
+    "LEY-27742",   # Ley de Bases y Puntos de Partida para la Libertad de los Argentinos
+    "LEY-24557",   # Ley de Riesgos del Trabajo (ART)
+    "LEY-24013",   # Ley Nacional de Empleo
+    "LEY-25326",   # Protección de Datos Personales
+    "LEY-27551",   # Ley de Alquileres
 ]
 
 

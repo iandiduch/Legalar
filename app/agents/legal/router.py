@@ -31,11 +31,15 @@ Tu objetivo es determinar qué tipo de tarea jurídica solicita el usuario:
 Identificadores de normas canónicas en el repositorio:
 - Constitución Nacional de la República Argentina -> LEY-24430
 - Código Civil y Comercial de la Nación (CCyC) -> LEY-26994
-- Ley de Contrato de Trabajo (LCT) -> LEY-20744
+- Ley de Contrato de Trabajo (LCT / T.O. 1976 vigente con Art. 245) -> DEC-390-1976 (o LEY-20744)
 - Ley General de Sociedades -> LEY-19550
 - Ley de Defensa del Consumidor -> LEY-24240
 - Código Penal de la Nación -> LEY-11179
 - DNU 70/2023 (Bases para la Reconstrucción) -> DNU-70-2023
+- Ley de Bases -> LEY-27742
+- Ley de Riesgos del Trabajo (ART) -> LEY-24557
+- Ley de Empleo -> LEY-24013
+- Protección de Datos Personales -> LEY-25326
 """
 
 
