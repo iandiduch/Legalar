@@ -1,6 +1,6 @@
 """Topología del grafo del Agente Legal Argentino.
 
-Reemplaza la topología académica multi-agente por el flujo de producción del dominio legal:
+Flujo de producción del dominio legal:
 Router -> [Legal Agent | Document Analyzer | Diff Node] -> Validator -> END.
 """
 

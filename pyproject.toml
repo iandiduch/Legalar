@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sistema-intelligence-universitario"
-version = "1.0.0"
-description = "Sistema de IA para gestión de consultas institucionales y académicas universitarias con Multi-Agent LangGraph, RAG y HOTL."
+name = "legalar-api"
+version = "2.0.0"
+description = "Asistente Legal y Motor RAG de Producción para Derecho Argentino con LangGraph, RAG Híbrido y legalizear."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -22,12 +22,13 @@ def test_scan_detects_known_injection_patterns(text: str) -> None:
     assert scan_for_injection_patterns(text) != []
 
 
-def test_scan_returns_empty_for_normal_institutional_text() -> None:
+def test_scan_returns_empty_for_normal_legal_text() -> None:
     text = (
-        "El plazo de inscripcion a materias del primer cuatrimestre cierra el 15 de marzo. "
-        "Los estudiantes deben presentar la documentacion en la oficina de Bedelia antes de esa fecha."
+        "El plazo de apelacion de las sentencias definitivas en el fuero civil vence a los cinco dias habiles. "
+        "Las partes deben constituir domicilio procesal electronico en su primera presentacion judicial."
     )
-    assert scan_for_injection_patterns(text) == []
+    matches = scan_for_injection_patterns(text)
+    assert matches == []
 
 
 def test_scan_reports_multiple_distinct_matches() -> None:

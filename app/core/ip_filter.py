@@ -1,6 +1,6 @@
 """Allowlist de IPs/CIDR para endpoints admin. Sin dependencias externas: el
 modulo estandar `ipaddress` alcanza para una lista chica de rangos confiables
-(red de campus, VPN admin) -- no hace falta nada mas sofisticado a esta escala."""
+(red interna, VPN admin) -- no hace falta nada mas sofisticado a esta escala."""
 
 import ipaddress
 

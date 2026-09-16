@@ -54,7 +54,7 @@
     "expected_answer_contains": "derogada"
   },
   {
-    "question": "¿Cuáles son los requisitos de inscripción a materias en la facultad de derecho?",
+    "question": "¿Cuáles son los precios de pasajes de avión y hoteles para viajar a Madrid?",
     "expected_source": null,
     "expected_article": null,
     "expected_answer_contains": "asistente legal"

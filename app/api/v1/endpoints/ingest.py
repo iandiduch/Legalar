@@ -38,7 +38,7 @@ _READ_CHUNK_BYTES = 1024 * 1024
     response_model=IngestUploadResponse,
     status_code=202,
     summary="Cargar documento para ingesta RAG",
-    description="Sube un archivo institucional (.pdf, .docx, .txt, .md), valida su tamaño y extensión, y encola un job asíncrono en Redis para parseo, chunking y generación de embeddings.",
+    description="Sube un archivo documental legal (.pdf, .docx, .txt, .md), valida su tamaño y extensión, y encola un job asíncrono en Redis para parseo, chunking y generación de embeddings.",
     response_description="Confirmación del job de ingesta creado con su UUID para seguimiento.",
 )
 async def ingest_document(

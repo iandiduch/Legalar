@@ -7,7 +7,7 @@ from app.domain.models import ApiKeyScope
 
 
 class ApiKeyCreateRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=200, description="Etiqueta humana, ej. 'Frontend institucional'")
+    name: str = Field(..., min_length=1, max_length=200, description="Etiqueta humana, ej. 'Frontend Legalar'")
     scope: ApiKeyScope
     created_by: str | None = Field(default=None, max_length=128)
 

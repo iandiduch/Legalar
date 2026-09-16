@@ -130,16 +130,9 @@
     "passed": true
   },
   {
-    "question": "¿Cuáles son los requisitos de inscripción a materias en la facultad de derecho?",
-    "answer": "La normativa proporcionada se refiere a leyes y artículos del derecho argentino, pero no aborda los requisitos de inscripción a materias en la facultad de derecho. Para obtener información precisa sobre este tema, se recomienda consultar directamente con la facultad de derecho correspondiente o revisar su reglamento interno.",
-    "sources_used": [
-      "LEY-24522 Art. 26",
-      "LEY-26994 Art. 154",
-      "LEY-27442 Art. 19",
-      "LEY-24522 Art. 92",
-      "LEY-24430 Art. 111",
-      "LEY-26994 Art. 311"
-    ],
+    "question": "¿Cuáles son los precios de pasajes de avión y hoteles para viajar a Madrid?",
+    "answer": "La normativa legal argentina no contiene información sobre tarifas aéreas ni reservas hoteleras. Como asistente legal especializado en derecho argentino, únicamente brindo asesoramiento y análisis fundamentado en el ordenamiento jurídico nacional.",
+    "sources_used": [],
     "expected_source": null,
     "faithfulness": 1.0,
     "relevance": 1.0,
