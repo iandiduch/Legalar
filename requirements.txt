@@ -1,0 +1,50 @@
+# Framework API
+fastapi==0.141.1
+uvicorn[standard]==0.38.0
+python-multipart==0.0.20
+
+# Validacion / configuracion
+pydantic==2.13.5
+pydantic-settings==2.15.0
+
+# LangGraph / LangChain
+langgraph==1.2.11
+langgraph-checkpoint==4.2.0
+langgraph-checkpoint-postgres==3.1.2
+langchain-core==1.6.1
+langchain-openai==1.6.0
+langchain-text-splitters==1.1.2
+openai==3.6.0
+
+# Postgres (dos drivers a proposito: asyncpg para las tablas propias via SQLAlchemy,
+# psycopg exclusivamente para el checkpointer de LangGraph, que lo exige por dependencia)
+sqlalchemy[asyncio]==2.0.52
+asyncpg==0.31.0
+psycopg[binary,pool]==3.3.5
+
+# Redis
+redis==8.1.0
+
+# Pinecone
+pinecone==9.1.0
+
+# Parsing de documentos (PDF/DOCX; TXT y MD no necesitan libreria)
+pdfplumber==0.11.4
+python-docx==1.1.2
+pyyaml==6.0.2
+GitPython==3.1.44
+
+# HTTP / resiliencia
+httpx==0.28.1
+tenacity==9.1.2
+
+# Logging estructurado
+python-json-logger==3.3.0
+
+# Observabilidad (Arize Phoenix / OpenInference / OpenTelemetry / Prometheus)
+arize-phoenix-otel==0.17.1
+openinference-instrumentation-langchain==0.1.73
+openinference-instrumentation-openai==0.1.57
+opentelemetry-sdk==1.44.0
+opentelemetry-exporter-otlp-proto-http==1.44.0
+prometheus-client==0.21.1

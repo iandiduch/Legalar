@@ -1,0 +1,62 @@
+[
+  {
+    "question": "¿Cuál es el plazo de las locaciones habitacionales y qué modificó el DNU 70/2023?",
+    "expected_source": "LEY-26994",
+    "expected_article": "1198",
+    "expected_answer_contains": "plazo"
+  },
+  {
+    "question": "¿Cómo se calcula la indemnización por despido sin justa causa según la Ley de Contrato de Trabajo?",
+    "expected_source": "LEY-20744",
+    "expected_article": "245",
+    "expected_answer_contains": "un mes de sueldo"
+  },
+  {
+    "question": "¿Cuál es el plazo de garantía legal para cosas muebles no consumibles según la Ley de Defensa del Consumidor?",
+    "expected_source": "LEY-24240",
+    "expected_article": "11",
+    "expected_answer_contains": "tres (3) meses"
+  },
+  {
+    "question": "¿Qué consagra el artículo 14 bis de la Constitución Nacional respecto a la protección del trabajo?",
+    "expected_source": "LEY-24430",
+    "expected_article": "14 bis",
+    "expected_answer_contains": "condiciones dignas"
+  },
+  {
+    "question": "¿Cuáles son las causales de disolución de una sociedad según la Ley General de Sociedades?",
+    "expected_source": "LEY-19550",
+    "expected_article": "94",
+    "expected_answer_contains": "disuelve"
+  },
+  {
+    "question": "¿En qué plazo prescribe la acción de responsabilidad civil genérica en el Código Civil y Comercial?",
+    "expected_source": "LEY-26994",
+    "expected_article": "2560",
+    "expected_answer_contains": "cinco años"
+  },
+  {
+    "question": "¿Qué establece la ley sobre el pago de la remuneración exclusivamente en mercadería o especie?",
+    "expected_source": "LEY-20744",
+    "expected_article": "105",
+    "expected_answer_contains": "dinero"
+  },
+  {
+    "question": "¿Qué modificaciones introdujo el DNU 70/2023 sobre la prescripción y desregulación?",
+    "expected_source": "DNU-70-2023",
+    "expected_article": null,
+    "expected_answer_contains": "DNU"
+  },
+  {
+    "question": "¿Sigue vigente el plazo mínimo obligatorio de tres años de la Ley de Alquileres 27.551?",
+    "expected_source": "DNU-70-2023",
+    "expected_article": "249",
+    "expected_answer_contains": "derogada"
+  },
+  {
+    "question": "¿Cuáles son los requisitos de inscripción a materias en la facultad de derecho?",
+    "expected_source": null,
+    "expected_article": null,
+    "expected_answer_contains": "asistente legal"
+  }
+]

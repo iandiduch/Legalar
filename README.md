@@ -1,0 +1,216 @@
+# ⚖️ Chatbot Legalize AR · Asistente Legal y Motor RAG de Producción
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12" />
+  <img src="https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/LangGraph-Legal--Agent-orange?style=for-the-badge&logo=langchain&logoColor=white" alt="LangGraph" />
+  <img src="https://img.shields.io/badge/OpenRouter%20%2F%20OpenAI-GPT--4o--mini-412991?style=for-the-badge&logo=openai&logoColor=white" alt="LLM" />
+  <img src="https://img.shields.io/badge/Pinecone-Vector_DB-000000?style=for-the-badge&logo=pinecone&logoColor=white" alt="Pinecone" />
+  <img src="https://img.shields.io/badge/PostgreSQL-16_FTS_Spanish-336791?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/Redis-Rate_Limiter-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis" />
+  <img src="https://img.shields.io/badge/Dokploy-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Dokploy" />
+  <img src="https://img.shields.io/badge/Tests-30_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
+</p>
+
+Sistema conversacional y motor de análisis normativo de grado de producción especializado en **Derecho Positivo Argentino**. La arquitectura utiliza como fuente primaria de verdad el repositorio versionado **`legalize-dev/legalize-ar`** (~31.326 normas consolidadas en Markdown y versionadas en Git).
+
+La orquestación se basa en **LangGraph** bajo un flujo desacoplado: un **Ruteador Inteligente** clasifica la consulta mediante Structured Output estricto (Pydantic v2) hacia nodos de ejecución especializados:
+- **`Legal Agent`**: Consultas doctrinales y normativas respaldadas por un pipeline de **RAG Híbrido** (búsqueda semántica en Pinecone + Full-Text Search en PostgreSQL con índice GIN en español y fusión RRF).
+- **`Document Analyzer`**: Auditoría de contratos, convenios y cartas documento (PDF, DOCX, TXT) contrastados contra normas de orden público.
+- **`Diff Node`**: Comparador histórico de reformas legislativas (ej: impacto del DNU 70/2023 sobre el Código Civil y Comercial y la Ley de Contrato de Trabajo) mediante un **motor Git local autónomo** con fallback de circuit-breaker sobre la API de Legalize.
+- **`Legal Validator`**: Guardrail jurídico independiente que audita la suficiencia de la evidencia, mitiga alucinaciones y alerta si se alega la vigencia de normas derogadas.
+
+La persistencia multi-turno se gestiona mediante un **Checkpointer asíncrono en PostgreSQL (`AsyncPostgresSaver`)** por `thread_id`.
+
+---
+
+## 🏛️ 1. Arquitectura y Principios de Diseño
+
+El sistema opera bajo **Clean Architecture** y principios **SOLID**, garantizando bajo acoplamiento, alta cohesión y testeabilidad total.
+
+```text
+CHATBOT-LEGALIZE/
+├── app/
+│   ├── core/                  # Infraestructura: config, logging, telemetry, rate limiting, seguridad y factoría LLM
+│   ├── domain/                # Dominio: enums de intenciones (QueryIntent), roles, confianzas y estados
+│   ├── schemas/               # Contratos Pydantic v2 para API y agentes:
+│   │   └── legal/             # DTOs de chat, citas normativas (LegalCitation), diffs y auditoría de contratos
+│   ├── db/                    # Persistencia: SQLAlchemy 2.0 async (asyncpg), modelos legales (LegalLaw, LegalArticle, etc.)
+│   ├── services/              # Casos de uso y lógica de negocio:
+│   │   ├── legal/             # Parser Markdown InfoLEG, local Git diff engine, circuit breaker API, sync y RAG retriever
+│   │   ├── llm_factory.py     # Factoría unificada con soporte automático para OpenAI y OpenRouter
+│   │   ├── rag_service.py     # Cliente AsyncPinecone y generador de embeddings vectoriales
+│   │   └── prompt_manager.py  # Versionado dinámico de directivas de agentes en base de datos
+│   ├── agents/                # Grafo LangGraph:
+│   │   └── legal/             # Router, LegalAgent, DocumentAnalyzer, DiffNode, Validator y StateGraph
+│   └── api/                   # FastAPI Gateway: routers v1 (/legal, /ingest, /prompts, /admin, /health), middlewares y auth
+├── data/                      # Almacenamiento local: golden_set.json y evaluation_results.json
+├── scripts/                   # CLI de inicialización (init_db), bootstrap legal (legal_bootstrap) y evaluación (evaluate_rag)
+├── tests/                     # Suite de pruebas automatizadas: unitarias, integración, seguridad y persistencia
+├── Dockerfile                 # Contenedor multi-stage optimizado para Dokploy (con git y python 3.12)
+├── docker-compose.yml         # Orquestación local (FastAPI, PostgreSQL 16, Redis, Phoenix opcional)
+├── pyproject.toml             # Configuración unificada de herramientas de desarrollo
+└── requirements.txt           # Dependencias fijadas para producción
+```
+
+---
+
+## 🔄 2. Diagrama del Sistema Multi-Nodo Legal
+
+```mermaid
+flowchart LR
+
+    %% =========================================================
+    %% FLUJO PRINCIPAL
+    %% =========================================================
+
+    U([Usuario / Abogado / Ciudadano])
+        -->|POST /api/v1/legal/chat| API[FastAPI Gateway]
+
+    subgraph CORE["Motor Jurídico · LangGraph"]
+        direction TB
+
+        API -->|thread_id| GRAPH[LangGraph Engine]
+
+        GRAPH --> ROUTER[Router Inteligente]
+
+        ROUTER -->|Consulta normativa| LEG[Legal Agent · RAG Híbrido]
+        ROUTER -->|Auditoría de contrato| DOC[Document Analyzer]
+        ROUTER -->|Comparar reformas / historial| DIFF[Diff Node · Git Local]
+
+        LEG --> VAL[Validador Jurídico]
+        DOC --> VAL
+        DIFF --> VAL
+
+        VAL -->|Dictamen validado| END_OK([END · Respuesta con Citas])
+
+        GRAPH <-->|Checkpoints de estado| CP[(PostgreSQL<br/>AsyncPostgresSaver)]
+    end
+
+    %% =========================================================
+    %% FUENTES DE CONOCIMIENTO
+    %% =========================================================
+
+    subgraph KNOWLEDGE["Bases de Conocimiento"]
+        direction TB
+
+        PINE[(Pinecone<br/>ar-legislation<br/>1536 dim)]
+        FTS[(PostgreSQL<br/>GIN FTS Spanish<br/>ts_rank_cd)]
+        GIT[(Git Local<br/>repo_legalize_ar<br/>History / AST)]
+        API_LEG[Legalize.dev API<br/>Auxiliar / Fallback]
+    end
+
+    LEG -->|Búsqueda densa| PINE
+    LEG -->|Búsqueda léxica| FTS
+    DIFF -->|diff / show / log| GIT
+    DIFF -.->|Si quota < 2000| API_LEG
+```
+
+---
+
+## ⚡ 3. Motor de RAG Híbrido y Fusión RRF
+
+Para garantizar máxima precisión en la recuperación de artículos jurídicos, el sistema combina:
+
+1. **Búsqueda Léxica en PostgreSQL (FTS)**:
+   - Los artículos se almacenan en la tabla `legal_articles` con un índice GIN sobre `to_tsvector('spanish', text_searchable)`.
+   - Permite encontrar términos técnicos literales exactos (ej: *"pacto comisorio"*, *"locación habitacional"*, *"artículo 245"*).
+2. **Búsqueda Vectorial Semántica en Pinecone**:
+   - Embeddings de 1536 dimensiones generados vía **OpenRouter / OpenAI** (`openai/text-embedding-3-small`) en el namespace `ar-legislation`.
+   - Permite capturar similitudes conceptuales aunque el usuario no use la terminología jurídica exacta.
+3. **Reciprocal Rank Fusion (RRF)**:
+   - Combina ambos rankings asignando un score compuesto:
+     $$RRF(d) = \frac{W_{lex}}{k + rank_{lex}(d)} + \frac{W_{vec}}{k + rank_{vec}(d)}$$
+
+---
+
+## ⚖️ 4. Motor de Diffs y Fallback Autónomo
+
+- El endpoint `/api/v1/legal/diff` compara versiones históricas de cualquier ley o artículo específico.
+- **Fallback Circuit Breaker**: La API externa de `legalize.dev` tiene un límite gratuito mensual de 2.000 llamadas. El sistema cuenta con un monitor de consumo transparente: si la API alcanza su cupo o devuelve error `429 Too Many Requests`, el cliente conmuta de inmediato y de forma autónoma al **`LocalGitDiffEngine`**, que computa el diff sobre el repositorio Git local sin interrumpir el servicio ni generar costos.
+
+---
+
+## 🚀 5. Puesta en Marcha Rápida
+
+### Requisitos previos
+- Python 3.12+
+- PostgreSQL 16+
+- Redis 7+
+- Clave de API de **OpenRouter** (o OpenAI) y **Pinecone**
+
+### Configuración del entorno (`.env`)
+```env
+# === Proveedor LLM / OpenAI / OpenRouter ===
+OPENAI_API_KEY=sk-or-v1-tu-clave-aqui
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_CHAT_MODEL=openai/gpt-4o-mini
+OPENAI_EMBEDDING_MODEL=openai/text-embedding-3-small
+LLM_TEMPERATURE=0.0
+
+# === Pinecone ===
+PINECONE_API_KEY=pcsk_tu-clave-aqui
+PINECONE_INDEX_NAME=intelligence-system-legal
+
+# === Postgres ===
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=intelligence_system
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=tu-password
+
+# === Redis ===
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+
+### Inicialización de Base de Datos y Poblado de Leyes
+
+1. **Crear esquema, tablas y prompts**:
+   ```bash
+   python -m scripts.init_db
+   ```
+
+2. **Ingestar las 10 leyes estructurales argentinas**:
+   ```bash
+   # Con generación de vectores en Pinecone (OpenRouter):
+   python -m scripts.legal_bootstrap --priority
+
+   # O modo offline ultra-rápido (solo PostgreSQL FTS, sin consumir tokens):
+   python -m scripts.legal_bootstrap --priority --skip-embeddings
+   ```
+
+3. **Iniciar el servidor API**:
+   ```bash
+   uvicorn app.main:asgi_app --host 0.0.0.0 --port 8000 --reload
+   ```
+   Swagger UI interactivo disponible en: `http://localhost:8000/docs`
+
+---
+
+## 🐳 6. Despliegue en Dokploy / Docker
+
+El contenedor está optimizado en arquitectura multi-stage con usuario no-root (`appuser`) y `git` preinstalado. Durante el build de Docker, clona automáticamente el repositorio oficial de leyes `legalize-ar`:
+
+1. En Dokploy, configurar el despliegue apuntando al repositorio de Git.
+2. Definir las variables de entorno en el panel de Dokploy.
+3. En el contenedor, ejecutar por única vez:
+   ```bash
+   python -m scripts.init_db
+   python -m scripts.legal_bootstrap --priority --skip-embeddings
+   ```
+
+---
+
+## 🏆 7. Evaluación RAG (Golden Set & LLM-as-a-Judge)
+
+Para validar objetivamente el rigor normativo y la fidelidad del pipeline, se utiliza un harness automatizado con **LLM-as-a-Judge** ([`scripts/evaluate_rag.py`](scripts/evaluate_rag.py)) contra el conjunto curado ([`data/golden_set.json`](data/golden_set.json)):
+
+```bash
+python -m scripts.evaluate_rag
+```
+
+Métricas evaluadas:
+- **Faithfulness**: Evalúa que la respuesta afirme únicamente hechos respaldados en los artículos citados.
+- **Answer Relevance**: Evalúa que responda de forma directa y fundada a la consulta planteada.
+- **Validation Guardrail**: Verifica que no cite leyes derogadas (ej: rechazo de vigencia de la Ley 27.551 por aplicación del DNU 70/2023).

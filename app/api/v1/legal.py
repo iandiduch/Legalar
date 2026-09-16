@@ -1,0 +1,290 @@
+"""Endpoints de la API para el Agente Legal Argentino."""
+
+import time
+import uuid
+from pathlib import Path
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from langchain_core.messages import HumanMessage
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agents.legal.graph import build_legal_graph
+from app.agents.legal.state import LegalAgentState
+from app.core.config import Settings
+from app.core.security import require_scope
+from app.db.session import get_db, get_sessionmaker
+from app.domain.models import ApiKeyScope, ConfidenceLevel, FileType, QueryIntent
+from app.schemas.legal.chat import LegalChatRequest, LegalChatResponse, LegalValidationSummary
+from app.schemas.legal.diff import DiffResponse
+from app.services.ingestion_service import parse_document
+from app.services.legal.ingestion_worker import LegalIngestionService
+from app.services.legal.legalize_api_client import LegalizeApiClient
+from app.services.legal.local_diff_engine import LocalGitDiffEngine
+from app.services.legal.retriever import HybridLegalRetriever
+from app.services.llm_factory import build_chat_model
+from app.services.rag_service import build_embeddings_client, build_pinecone_client
+
+
+router = APIRouter(prefix="/legal", tags=["Legal Agent"])
+
+
+def get_settings() -> Settings:
+    return Settings()
+
+
+def get_diff_engine(settings: Annotated[Settings, Depends(get_settings)]) -> LocalGitDiffEngine:
+    return LocalGitDiffEngine(repo_path=settings.LEGALIZE_REPO_PATH)
+
+
+def get_legalize_api_client(
+    settings: Annotated[Settings, Depends(get_settings)],
+    diff_engine: Annotated[LocalGitDiffEngine, Depends(get_diff_engine)],
+) -> LegalizeApiClient:
+    return LegalizeApiClient(settings=settings, local_diff_engine=diff_engine)
+
+
+def get_legal_retriever(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HybridLegalRetriever:
+    try:
+        pinecone_c = build_pinecone_client(settings)
+    except Exception:
+        pinecone_c = None
+
+    try:
+        embeddings_c = build_embeddings_client(settings)
+    except Exception:
+        embeddings_c = None
+
+    sessionmaker = get_sessionmaker(settings)
+    return HybridLegalRetriever(
+        settings=settings,
+        pinecone_client=pinecone_c,
+        embeddings_client=embeddings_c,
+        sessionmaker=sessionmaker,
+    )
+
+
+@router.post(
+    "/chat",
+    response_model=LegalChatResponse,
+    summary="Consulta Jurídica Interactiva",
+    description="Responde preguntas jurídicas fundamentadas en la legislación argentina vigente con citas de artículos.",
+)
+async def legal_chat_endpoint(
+    request: LegalChatRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    retriever: Annotated[HybridLegalRetriever, Depends(get_legal_retriever)],
+    diff_client: Annotated[LegalizeApiClient, Depends(get_legalize_api_client)],
+) -> LegalChatResponse:
+    start_time = time.time()
+    thread_id = request.thread_id or str(uuid.uuid4())
+
+    llm = build_chat_model(settings)
+
+    app_graph = build_legal_graph(checkpointer=None)
+
+    initial_state: LegalAgentState = {
+        "messages": [HumanMessage(content=request.query)],
+        "thread_id": thread_id,
+        "query": request.query,
+        "intent": QueryIntent.LEGAL_CONSULTATION,
+        "citations": [],
+        "draft_answer": None,
+        "validation_result": None,
+        "document_text": None,
+        "document_type": None,
+        "diff_request_params": None,
+        "diff_result": None,
+        "final_answer": None,
+        "confidence": ConfidenceLevel.HIGH,
+        "iteration": 0,
+    }
+
+    config = {
+        "configurable": {
+            "llm_client": llm,
+            "legal_retriever": retriever,
+            "legalize_api_client": diff_client,
+            "settings": settings,
+        }
+    }
+
+    try:
+        final_state = await app_graph.ainvoke(initial_state, config=config)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Fallo en la ejecución del Agente Legal: {exc}",
+        ) from exc
+
+    duration = time.time() - start_time
+    val_res = final_state.get("validation_result") or LegalValidationSummary(is_valid=True)
+
+    return LegalChatResponse(
+        thread_id=thread_id,
+        query=request.query,
+        intent=final_state.get("intent", QueryIntent.LEGAL_CONSULTATION),
+        answer=final_state.get("final_answer") or final_state.get("draft_answer") or "No se pudo generar respuesta.",
+        citations=final_state.get("citations", []),
+        confidence=final_state.get("confidence", ConfidenceLevel.MEDIUM),
+        validation=val_res,
+        processing_time_seconds=round(duration, 3),
+    )
+
+
+@router.post(
+    "/analyze",
+    response_model=LegalChatResponse,
+    summary="Auditoría de Documento Legal",
+    description="Analiza contratos, convenios o cartas documento (PDF/DOCX/TXT) y detecta cláusulas abusivas o nulas según la ley argentina.",
+)
+async def analyze_document_endpoint(
+    settings: Annotated[Settings, Depends(get_settings)],
+    retriever: Annotated[HybridLegalRetriever, Depends(get_legal_retriever)],
+    diff_client: Annotated[LegalizeApiClient, Depends(get_legalize_api_client)],
+    file: UploadFile | None = File(default=None),
+    raw_text: str | None = Form(default=None),
+    document_type: str = Form(default="contrato"),
+) -> LegalChatResponse:
+    doc_content = ""
+    if file and file.filename:
+        ext = file.filename.split(".")[-1].lower()
+        try:
+            ft = FileType(ext)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Tipo de archivo '{ext}' no soportado. Formatos válidos: pdf, docx, txt, md.",
+            )
+
+        temp_path = Path(settings.UPLOAD_DIR) / f"temp_{uuid.uuid4()}.{ext}"
+        temp_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            content = await file.read()
+            with open(temp_path, "wb") as f:
+                f.write(content)
+            pages = await parse_document(temp_path, ft)
+            doc_content = "\n\n".join(p.text for p in pages)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+    elif raw_text:
+        doc_content = raw_text.strip()
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debe proporcionar un archivo (file) o el texto plano del documento (raw_text).",
+        )
+
+    if len(doc_content) < 20:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El documento es demasiado corto para realizar un análisis jurídico consistente.",
+        )
+
+    req = LegalChatRequest(
+        query=f"Auditar el siguiente {document_type} a la luz del derecho argentino:",
+        thread_id=str(uuid.uuid4()),
+    )
+
+    start_time = time.time()
+    llm = build_chat_model(settings)
+
+    app_graph = build_legal_graph(checkpointer=None)
+
+    initial_state: LegalAgentState = {
+        "messages": [HumanMessage(content=req.query)],
+        "thread_id": req.thread_id or str(uuid.uuid4()),
+        "query": req.query,
+        "intent": QueryIntent.DOCUMENT_ANALYSIS,
+        "citations": [],
+        "draft_answer": None,
+        "validation_result": None,
+        "document_text": doc_content,
+        "document_type": document_type,
+        "diff_request_params": None,
+        "diff_result": None,
+        "final_answer": None,
+        "confidence": ConfidenceLevel.HIGH,
+        "iteration": 0,
+    }
+
+    config = {
+        "configurable": {
+            "llm_client": llm,
+            "legal_retriever": retriever,
+            "legalize_api_client": diff_client,
+            "settings": settings,
+        }
+    }
+
+    final_state = await app_graph.ainvoke(initial_state, config=config)
+    duration = time.time() - start_time
+    val_res = final_state.get("validation_result") or LegalValidationSummary(is_valid=True)
+
+    return LegalChatResponse(
+        thread_id=req.thread_id or str(uuid.uuid4()),
+        query=req.query,
+        intent=QueryIntent.DOCUMENT_ANALYSIS,
+        answer=final_state.get("final_answer") or final_state.get("draft_answer") or "Análisis completado.",
+        citations=final_state.get("citations", []),
+        confidence=final_state.get("confidence", ConfidenceLevel.HIGH),
+        validation=val_res,
+        processing_time_seconds=round(duration, 3),
+    )
+
+
+@router.get(
+    "/diff",
+    response_model=DiffResponse,
+    summary="Comparador Histórico de Reformas",
+    description="Compara redacciones de una ley o artículo específico entre dos fechas o commits con fallback local Git transparente.",
+)
+async def legal_diff_endpoint(
+    law_id: str = Query(..., description="Identificador de la norma (ej: 'LEY-26994', 'LEY-19550')"),
+    article: str | None = Query(default=None, description="Artículo específico opcional (ej: '1198')"),
+    date_a: str | None = Query(default=None, description="Fecha inicial (YYYY-MM-DD)"),
+    date_b: str | None = Query(default=None, description="Fecha posterior (YYYY-MM-DD)"),
+    api_client: LegalizeApiClient = Depends(get_legalize_api_client),
+) -> DiffResponse:
+    res = await api_client.get_diff(
+        law_identifier=law_id,
+        date_a=date_a,
+        date_b=date_b,
+        article=article,
+    )
+    return res
+
+
+@router.post(
+    "/sync",
+    summary="Sincronización Incremental de Leyes",
+    description="Ejecuta la sincronización Git incremental sobre legalize-ar e indexa normas con hashing de artículos.",
+    dependencies=[Depends(require_scope(ApiKeyScope.ADMIN))],
+)
+async def trigger_legal_sync(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    sessionmaker = get_sessionmaker(settings)
+    embeddings = build_embeddings_client(settings)
+    pinecone_c = build_pinecone_client(settings)
+
+    worker = LegalIngestionService(
+        settings=settings,
+        sessionmaker=sessionmaker,
+        embeddings_client=embeddings,
+        pinecone_client=pinecone_c,
+    )
+
+    sync_run = await worker.sync_incremental()
+    return {
+        "sync_id": str(sync_run.id),
+        "status": sync_run.status,
+        "files_added": sync_run.files_added,
+        "files_modified": sync_run.files_modified,
+        "articles_indexed": sync_run.articles_indexed,
+        "articles_skipped_unchanged": sync_run.articles_skipped_unchanged,
+        "duration_seconds": sync_run.duration_seconds,
+    }
