@@ -39,6 +39,7 @@ class QueryIntent(str, Enum):
     DOCUMENT_ANALYSIS = "document_analysis"
     VERSION_DIFF = "version_diff"
     GENERAL_INQUIRY = "general_inquiry"
+    URL_FACT_CHECK = "url_fact_check"
 
 
 class TaskStatus(str, Enum):

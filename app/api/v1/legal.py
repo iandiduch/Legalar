@@ -230,6 +230,7 @@ async def legal_chat_stream_endpoint(
         done_payload = {
             "thread_id": thread_id,
             "query": request.query,
+            "intent": final_state.get("intent", QueryIntent.LEGAL_CONSULTATION),
             "answer": final_answer,
             "citations": citations_data,
             "confidence": final_state.get("confidence", ConfidenceLevel.MEDIUM),

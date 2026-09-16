@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.agents.legal.state import LegalAgentState
 from app.core.structured_output import invoke_structured_with_retry
 from app.domain.models import QueryIntent
+from app.services.legal.web_reader import fetch_web_page_content, find_urls_in_text
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ ROUTER_PROMPT = """Eres el clasificador de intenciones del Agente Legal Argentin
 Tu objetivo es determinar qué tipo de tarea jurídica solicita el usuario:
 - 'legal_consultation': Pregunta doctrinaria, interpretativa o consulta sobre leyes argentinas vigentes.
 - 'document_analysis': El usuario proporciona un texto de contrato, convenio, carta documento o pide analizar cláusulas.
+- 'url_fact_check': El usuario incluye un enlace o link web (noticia, publicación) para contrastar su veracidad con la ley.
 - 'version_diff': El usuario pregunta qué cambió en una ley, cómo era la redacción anterior, qué modificó una reforma (ej DNU 70/2023 o Ley 27.551) respecto de artículos previos.
 - 'general_inquiry': Preguntas generales, saludos o consultas no normativas.
 
@@ -44,14 +46,45 @@ Identificadores de normas canónicas en el repositorio:
 
 
 async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[str, Any]:
-    """Clasifica la consulta y detecta indicios de leyes y artículos."""
+    """Clasifica la consulta, detecta enlaces web para fact-checking e indicios de leyes."""
     configurable = config.get("configurable", {})
     llm = configurable.get("llm_client")
     settings = configurable.get("settings")
 
-    # Si ya se especificó document_text en el estado, es DOCUMENT_ANALYSIS
+    # 1. Si ya se especificó document_text en el estado (ej: endpoint /analyze), es DOCUMENT_ANALYSIS
     if state.get("document_text"):
         return {"intent": QueryIntent.DOCUMENT_ANALYSIS}
+
+    # 2. Detección automática de enlaces web (URL Fact-Checking)
+    urls = find_urls_in_text(state["query"])
+    if urls:
+        target_url = urls[0]
+        logger.info("Detectado enlace web en la consulta: %s", target_url)
+        web_res = await fetch_web_page_content(target_url, timeout_seconds=4.0)
+
+        if web_res.success:
+            doc_text = (
+                f"URL FUENTE: {web_res.url} (Dominio: {web_res.domain})\n"
+                f"TÍTULO DE LA PUBLICACIÓN: {web_res.title or 'Sin título'}\n\n"
+                f"CONTENIDO EXTRAÍDO:\n{web_res.clean_text}"
+            )
+            return {
+                "intent": QueryIntent.URL_FACT_CHECK,
+                "document_text": doc_text,
+                "document_type": f"enlace_web ({web_res.domain})",
+            }
+        else:
+            fallback_text = (
+                f"AVISO SOBRE EL ENLACE ({target_url}):\n{web_res.error}\n\n"
+                "Instrucción: No fue posible acceder al contenido del enlace debido a la restricción indicada. "
+                "Responde la consulta jurídica planteada por el usuario en su texto, aclarando de forma concisa "
+                "que no se pudo leer el contenido del link provisto."
+            )
+            return {
+                "intent": QueryIntent.LEGAL_CONSULTATION,
+                "document_text": fallback_text,
+                "document_type": "enlace_no_accesible",
+            }
 
     if not llm:
         # Fallback determinista por palabras clave
