@@ -214,3 +214,55 @@ Métricas evaluadas:
 - **Faithfulness**: Evalúa que la respuesta afirme únicamente hechos respaldados en los artículos citados.
 - **Answer Relevance**: Evalúa que responda de forma directa y fundada a la consulta planteada.
 - **Validation Guardrail**: Verifica que no cite leyes derogadas (ej: rechazo de vigencia de la Ley 27.551 por aplicación del DNU 70/2023).
+
+---
+
+## 📚 8. Fuentes de Datos y Atribución Obligatoria
+
+Los textos legales consolidados e históricos utilizados por este sistema provienen del proyecto abierto **[legalize-ar](https://github.com/legalize-dev/legalize-ar)** de la iniciativa **[Legalize](https://legalize.dev)**.
+
+### Fuente Primaria Oficial
+- **InfoLEG / SAIJ**: Dirección Nacional del Sistema Argentino de Información Jurídica (SAIJ), dependiente del Ministerio de Justicia de la República Argentina.
+  - Catálogo legislativo mensual: [datos.jus.gob.ar/dataset/base-de-datos-legislativos-infoleg](https://datos.jus.gob.ar/dataset/base-de-datos-legislativos-infoleg)
+  - Portal oficial: [www.infoleg.gob.ar](https://www.infoleg.gob.ar)
+
+### Licencia de los Datos
+> *Datos legislativos provistos por el Ministerio de Justicia de la República Argentina a través de la Dirección Nacional del Sistema Argentino de Información Jurídica (SAIJ). Publicados en https://datos.jus.gob.ar bajo licencia Creative Commons Atribución 4.0 Internacional (CC-BY 4.0) (Resolución MINJUS 986/2016).*
+
+El código del pipeline de ingesta y orquestación de este asistente se distribuye bajo licencia **MIT**, reconociendo y preservando la atribución de origen a **SAIJ / InfoLEG** y al proyecto **legalize-dev/legalize-ar**.
+
+---
+
+## 🔍 9. Estructura del Corpus y Tipología de Normas
+
+El corpus procesado en `repo_legalize_ar` clasifica el ordenamiento normativo nacional según los estándares de nomenclatura de InfoLEG:
+
+| Prefijo | Tipo de Norma | Ejemplo en Corpus |
+|---|---|---|
+| `LEY-XXXXX` | Leyes de la Nación | `ar/LEY-26994.md` (Código Civil y Comercial), `ar/LEY-20744.md` (LCT) |
+| `LEY-24430` | Constitución Nacional | `ar/LEY-24430.md` (Texto oficial ordenado tras la Reforma de 1994) |
+| `DNU-N-YYYY` | Decretos de Necesidad y Urgencia | `ar/DNU-70-2023.md` (Bases para la Reconstrucción de la Economía) |
+| `DEC-N-YYYY` | Decretos Reglamentarios y del P.E.N. | `ar/DEC-222-2003.md` |
+| `DL-N-YYYY` | Decretos-Leyes de facto | Normas con fuerza de ley dictadas en períodos de facto |
+
+### Calidad de Reconstrucción Histórica (`reform_quality`)
+Cada norma incluye en su frontmatter estructurado el grado de fidelidad de su trazabilidad Git:
+- **`clean`**: La cadena de reformas y commits converge con exactitud matemática al texto consolidado vigente.
+- **`partial`**: Ciertas reformas intermedias no pudieron resolverse mecánicamente; el commit de cabecera alinea con el texto consolidado oficial.
+- **`bootstrap-only`**: Contiene únicamente el texto original y la consolidación actual.
+
+---
+
+## ⚠️ 10. Limitaciones Conocidas del Dataset
+
+- **Anexos y Tablas en Formato Imagen**: Tablas tarifarias o escalas numéricas publicadas históricamente como imágenes escaneadas en InfoLEG (ej: anexos de la Ley 27.430) son omitidas en el parseo a texto Markdown (indicadas bajo `extra.images_dropped`).
+- **Resoluciones de Actualización Numérica**: Resoluciones administrativas que actualizan montos variables (como límites de capital de la Ley 19.550 o topes de multas por inflación) no modifican el articulado formal en V1.
+- **Ventana de Actualización**: El catálogo oficial InfoLEG se regenera el día 1 de cada mes y `legalize-ar` se actualiza el día 2. La sincronización incremental (`POST /api/v1/legal/sync`) opera en concordancia con este ciclo mensual.
+- **Alcance Territorial V1**: Abarca la legislación nacional de la República Argentina. La legislación provincial (23 provincias y CABA) forma parte del roadmap para V2.
+
+---
+
+## ⚖️ 11. Descargo de Responsabilidad (Legal Disclaimer)
+
+> **AVISO LEGAL:** Este sistema de Inteligencia Artificial y motor de RAG legal tiene fines exclusivamente informativos, pedagógicos y de apoyo a la investigación jurídica. Las respuestas generadas por los modelos de lenguaje, el análisis de contratos y las citas normativas suministradas no constituyen dictamen jurídico vinculante, ni asesoramiento legal formal, ni sustituyen en ningún caso el criterio, análisis ni patrocinio letrado obligatorio de un abogado profesional matriculado en la jurisdicción competente. Ni los desarrolladores ni los proveedores de datos asumen responsabilidad por decisiones legales, contractuales o judiciales adoptadas con base en la información brindada por esta herramienta.
+
