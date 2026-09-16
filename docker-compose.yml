@@ -64,6 +64,9 @@ services:
       - uploads_data:/app/data/uploads
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - dokploy-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u, sys; sys.exit(0 if u.urlopen('http://localhost:8000/api/v1/health', timeout=3).status == 200 else 1)"]
@@ -115,3 +118,7 @@ volumes:
   redis_data:
   phoenix_data:
   uploads_data:
+
+networks:
+  dokploy-network:
+    external: true
