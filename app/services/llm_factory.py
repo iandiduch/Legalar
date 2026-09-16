@@ -15,6 +15,9 @@ def build_chat_model(settings: Settings, **kwargs: Any) -> ChatOpenAI:
         "model": settings.effective_chat_model,
         "api_key": settings.OPENAI_API_KEY.get_secret_value() or "dummy",
         "temperature": kwargs.get("temperature", settings.LLM_TEMPERATURE),
+        "max_tokens": kwargs.get("max_tokens", settings.LLM_MAX_TOKENS),
+        "request_timeout": kwargs.get("request_timeout", settings.LLM_REQUEST_TIMEOUT),
+        "max_retries": kwargs.get("max_retries", 2),
     }
 
     base_url = settings.effective_openai_base_url
@@ -22,7 +25,7 @@ def build_chat_model(settings: Settings, **kwargs: Any) -> ChatOpenAI:
         model_kwargs["base_url"] = base_url
 
     for k, v in kwargs.items():
-        if k != "temperature":
+        if k not in ("temperature", "max_tokens", "request_timeout", "max_retries"):
             model_kwargs[k] = v
 
     return ChatOpenAI(**model_kwargs)
@@ -36,6 +39,9 @@ def build_vision_model(settings: Settings, **kwargs: Any) -> ChatOpenAI:
         "model": settings.effective_vision_model,
         "api_key": settings.OPENAI_API_KEY.get_secret_value() or "dummy",
         "temperature": kwargs.get("temperature", 0.0),
+        "max_tokens": kwargs.get("max_tokens", settings.LLM_MAX_TOKENS),
+        "request_timeout": kwargs.get("request_timeout", settings.LLM_REQUEST_TIMEOUT),
+        "max_retries": kwargs.get("max_retries", 2),
     }
 
     base_url = settings.effective_openai_base_url
@@ -43,7 +49,7 @@ def build_vision_model(settings: Settings, **kwargs: Any) -> ChatOpenAI:
         model_kwargs["base_url"] = base_url
 
     for k, v in kwargs.items():
-        if k != "temperature":
+        if k not in ("temperature", "max_tokens", "request_timeout", "max_retries"):
             model_kwargs[k] = v
 
     return ChatOpenAI(**model_kwargs)

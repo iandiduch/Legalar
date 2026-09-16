@@ -94,6 +94,18 @@ class LocalGitDiffEngine:
         if not commit_b and date_b:
             commit_b = self.resolve_commit_for_date(law_identifier, date_b)
 
+        # Si no se pasó commit_a ni date_a, comparar contra la versión inmediatamente previa (HEAD~1)
+        if not commit_a:
+            try:
+                clean_id = self._clean_id(law_identifier)
+                log_shas = self._run_git(["log", "-n", "2", "--format=%H", "--", f"ar/{clean_id}.md"]).splitlines()
+                if len(log_shas) >= 2:
+                    commit_a = log_shas[1]  # Versión anterior inmediata
+                elif len(log_shas) == 1:
+                    commit_a = log_shas[0]
+            except Exception as e:
+                logger.warning("No se pudo resolver commit previo automático para %s: %s", law_identifier, e)
+
         # 2. Obtener contenidos en ambas versiones
         try:
             content_a = self.get_file_content_at_commit(law_identifier, commit_a) if commit_a else ""

@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     OPENAI_VISION_MODEL: str = "google/gemini-2.0-flash-exp:free"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     LLM_TEMPERATURE: float = 0.0
+    LLM_MAX_TOKENS: int = 2500
+    LLM_REQUEST_TIMEOUT: float = 40.0
     MAX_FILE_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10 MB
 
     @property

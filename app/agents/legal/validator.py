@@ -44,6 +44,21 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
     draft = state.get("draft_answer") or ""
     citations = state.get("citations", [])
 
+    # Si no hay citas normativas que auditar (ej. consultas de diff histórico o análisis directo),
+    # no tiene sentido disparar una llamada LLM pesada: ahorramos 20-25s de latencia.
+    if not citations:
+        val_summary = LegalValidationSummary(
+            is_valid=True,
+            all_norms_in_force=True,
+            unsupported_claims=[],
+            warning_notes=[],
+        )
+        return {
+            "validation_result": val_summary,
+            "final_answer": draft,
+            "messages": [AIMessage(content=draft, name=AgentRole.VALIDATOR.value)],
+        }
+
     # Validación heurística preliminar de estado de vigencia
     repealed_citations = [c for c in citations if c.status != "in_force"]
     has_repealed = len(repealed_citations) > 0
