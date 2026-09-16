@@ -43,6 +43,7 @@ from app.services.prompt_manager import PromptManager
 from app.services.rag_service import (
     build_embeddings_client,
     build_pinecone_client,
+    ensure_index_exists,
     get_index,
 )
 
@@ -72,7 +73,16 @@ async def lifespan(app: FastAPI):
 
     app.state.pinecone_client = build_pinecone_client(settings)
 
-    app.state.rag_index = await get_index(app.state.pinecone_client, settings)
+    try:
+        if settings.PINECONE_API_KEY.get_secret_value():
+            await ensure_index_exists(app.state.pinecone_client, settings)
+            app.state.rag_index = await get_index(app.state.pinecone_client, settings)
+        else:
+            app.state.rag_index = None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("lifespan.pinecone_init_warning", extra={"error": str(exc)})
+        app.state.rag_index = None
+
     app.state.embeddings_client = build_embeddings_client(settings)
 
     # Retrieval híbrido legal conectado a PostgreSQL FTS + Pinecone
@@ -110,11 +120,22 @@ async def lifespan(app: FastAPI):
     logger.info("lifespan.startup_complete")
     yield
 
-    await app.state.redis_client.aclose()
-    await app.state.rag_index.close()
-    await app.state.pinecone_client.close()
-    await app.state.checkpointer_pool.close()
-    await app.state.db_engine.dispose()
+    if getattr(app.state, "redis_client", None) is not None:
+        await app.state.redis_client.aclose()
+    if getattr(app.state, "rag_index", None) is not None:
+        try:
+            await app.state.rag_index.close()
+        except Exception:
+            pass
+    if getattr(app.state, "pinecone_client", None) is not None:
+        try:
+            await app.state.pinecone_client.close()
+        except Exception:
+            pass
+    if getattr(app.state, "checkpointer_pool", None) is not None:
+        await app.state.checkpointer_pool.close()
+    if getattr(app.state, "db_engine", None) is not None:
+        await app.state.db_engine.dispose()
     shutdown_telemetry()
     logger.info("lifespan.shutdown_complete")
 
