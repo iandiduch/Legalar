@@ -230,11 +230,35 @@ uvicorn app.main:asgi_app --host 127.0.0.1 --port 8000 --reload
 
 1. En Dokploy, configurar el despliegue de la aplicación apuntando al repositorio de Git.
 2. Definir las variables de entorno en el panel de Dokploy basándote en `.env.example`.
-3. En la consola del contenedor API, ejecutar:
+3. En la consola del contenedor API, inicializar esquema y leyes:
    ```bash
    python -m scripts.init_db
-   python -m scripts.legal_bootstrap --priority --skip-embeddings
+   python -m scripts.legal_bootstrap --priority
    ```
+
+### ⏰ Automatización de Actualizaciones Normativas (Cron Job Mensual)
+
+El catálogo oficial de **InfoLEG / SAIJ** (Ministerio de Justicia) se consolida el **día 1 de cada mes**, y el repositorio upstream **`legalize-ar`** procesa las reformas legislativas e impactos normativos el **día 2 de cada mes**.
+
+Para mantener el asistente legal permanentemente actualizado con las últimas leyes y decretos vigentes en producción de forma 100% autónoma, se recomienda configurar un **Cron Job mensual** (programado para el día 3 de cada mes):
+
+#### Opción A: Vía Endpoint API (Recomendado en Producción / Dokploy)
+El backend incluye un endpoint administrativo (`POST /api/v1/legal/sync`) que ejecuta la sincronización Git incremental, calcula los hashes de cada artículo y regenera embeddings **exclusivamente para los artículos modificados o leyes nuevas**:
+
+```bash
+# En el crontab de tu VPS/servidor (ejecutar 'crontab -e'):
+# Se ejecuta el día 3 de cada mes a las 04:00 AM
+0 4 3 * * curl -s -X POST https://legalar.onys.app/api/v1/legal/sync -H "X-API-Key: TU_API_KEY_ADMIN" > /dev/null 2>&1
+```
+
+#### Opción B: Vía Contenedor Docker
+Si gestionas el host directamente:
+
+```bash
+# En el crontab del host:
+0 4 3 * * docker exec -t $(docker ps -qf "name=api") python -m scripts.legal_bootstrap --priority
+```
+> **Nota técnica**: En el cron job periódico **no** se incluye el flag `--force`. De este modo, el comparador de `content_hash` omite instantáneamente los miles de artículos que no cambiaron y solo gasta tokens en los textos reformados por el Congreso o el Poder Ejecutivo.
 
 ---
 
