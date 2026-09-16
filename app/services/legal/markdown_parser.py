@@ -36,7 +36,7 @@ _RE_ART_HEADING = re.compile(
     re.IGNORECASE,
 )
 _RE_ART_BOLD = re.compile(
-    r"^(?P<stars>\*{2,3})\s*(?:art[íi]culo|art\.?)\s*(?P<num>\d+(?:\s*(?:bis|ter|quater|quinquies|[a-z]))?[°º\.]*?)\*+(?:[—–\-\.:\s]|\Z)(?P<rest>.*)$",
+    r"^(?P<stars>\*{2,3})\s*(?:art[íi]culo|art\.?)\s*(?P<num>\d+(?:\s*(?:bis|ter|quater|quinquies|[a-z]))?[°º\.]*)[^\w\n]*?\*+(?:[—–\-\.:\s]+|\s*|\Z)(?P<rest>.*)$",
     re.IGNORECASE,
 )
 _RE_ART_PLAIN = re.compile(
