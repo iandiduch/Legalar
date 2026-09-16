@@ -54,8 +54,10 @@ class Settings(BaseSettings):
     )
     OPENAI_BASE_URL: str | None = None
     OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
+    OPENAI_VISION_MODEL: str = "google/gemini-2.0-flash-exp:free"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     LLM_TEMPERATURE: float = 0.0
+    MAX_FILE_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10 MB
 
     @property
     def is_openrouter(self) -> bool:
@@ -74,6 +76,13 @@ class Settings(BaseSettings):
     @property
     def effective_chat_model(self) -> str:
         model = self.OPENAI_CHAT_MODEL
+        if self.is_openrouter and "/" not in model:
+            return f"openai/{model}"
+        return model
+
+    @property
+    def effective_vision_model(self) -> str:
+        model = self.OPENAI_VISION_MODEL
         if self.is_openrouter and "/" not in model:
             return f"openai/{model}"
         return model

@@ -52,7 +52,36 @@ def hash_api_key(plaintext: str, settings: Settings) -> str:
 
 
 def _client_ip(request: Request) -> str:
+    """Extrae la IP real del cliente considerando cabeceras de proxy inverso (Nginx)."""
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    x_real_ip = request.headers.get("X-Real-IP")
+    if x_real_ip:
+        return x_real_ip.strip()
     return request.client.host if request.client else "unknown"
+
+
+async def check_legal_rate_limit(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    """Aplica rate limiting por IP para endpoints públicos de consulta y auditoría."""
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+
+    rate_limiter: RateLimiter | None = getattr(request.app.state, "rate_limiter", None)
+    if not rate_limiter:
+        return
+
+    client_ip = _client_ip(request)
+    limit = settings.RATE_LIMIT_CLIENT_CHAT_PER_MINUTE
+    result = await rate_limiter.check(
+        f"ip:{client_ip}:legal", limit, settings.RATE_LIMIT_WINDOW_SECONDS
+    )
+    if not result.allowed:
+        logger.warning("rate_limit.legal_chat_ip_exceeded", extra={"ip": client_ip, "path": request.url.path})
+        raise RateLimitExceededError(result.retry_after_seconds)
 
 
 async def get_current_api_key(

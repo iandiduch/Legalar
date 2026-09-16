@@ -1,0 +1,9 @@
+Legalar - Asistente Legal y Motor RAG de Producción
+Copyright 2026 Ian Diduch (https://github.com/iandiduch/Legalar)
+
+Este producto incluye software desarrollado por Ian Diduch.
+Aplicación web y chat en vivo oficial: https://legalar.onys.app
+
+Reconocimiento y atribución de fuentes normativas:
+- Datos legislativos consolidados provistos por el Ministerio de Justicia de la República Argentina a través de la Dirección Nacional del Sistema Argentino de Información Jurídica (SAIJ / InfoLEG) bajo licencia CC-BY 4.0 (Resolución MINJUS 986/2016).
+- Repositorio y herramientas de parseo git estructurado por Legalize (https://legalize.dev / https://github.com/legalize-dev/legalize-ar).

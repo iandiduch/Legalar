@@ -17,4 +17,8 @@ build/
 .idea/
 .vscode/
 repo_legalize_ar/
+DESIGN.MD
+
+# Frontend (mantenido en repositorio privado independiente)
+frontend/
 

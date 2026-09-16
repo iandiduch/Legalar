@@ -1,16 +1,18 @@
-# ⚖️ Chatbot Legalize AR · Asistente Legal y Motor RAG de Producción
+# ⚖️ Legalar · Asistente Legal y Motor RAG de Producción
 
 <p align="center">
+  <a href="https://legalar.onys.app" target="_blank">
+    <img src="https://img.shields.io/badge/Chat_en_Vivo-legal_ar.onys.app-000000?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chat en Vivo" />
+  </a>
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12" />
   <img src="https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
   <img src="https://img.shields.io/badge/LangGraph-Legal--Agent-orange?style=for-the-badge&logo=langchain&logoColor=white" alt="LangGraph" />
-  <img src="https://img.shields.io/badge/OpenRouter%20%2F%20OpenAI-GPT--4o--mini-412991?style=for-the-badge&logo=openai&logoColor=white" alt="LLM" />
-  <img src="https://img.shields.io/badge/Pinecone-Vector_DB-000000?style=for-the-badge&logo=pinecone&logoColor=white" alt="Pinecone" />
-  <img src="https://img.shields.io/badge/PostgreSQL-16_FTS_Spanish-336791?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
-  <img src="https://img.shields.io/badge/Redis-Rate_Limiter-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis" />
-  <img src="https://img.shields.io/badge/Dokploy-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Dokploy" />
-  <img src="https://img.shields.io/badge/Tests-30_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
+  <img src="https://img.shields.io/badge/OpenRouter%20%2F%20OpenAI-Flexible_Models-412991?style=for-the-badge&logo=openai&logoColor=white" alt="LLM" />
+  <img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge&logo=apache&logoColor=white" alt="Apache 2.0" />
+  <img src="https://img.shields.io/badge/Tests-39_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
 </p>
+
+> 🌐 **Chat en Producción & Aplicación Web**: [https://legalar.onys.app](https://legalar.onys.app)
 
 Sistema conversacional y motor de análisis normativo de grado de producción especializado en **Derecho Positivo Argentino**. La arquitectura utiliza como fuente primaria de verdad el repositorio versionado **`legalize-dev/legalize-ar`** (~31.326 normas consolidadas en Markdown y versionadas en Git).
 
@@ -188,13 +190,47 @@ REDIS_PORT=6379
 
 ---
 
-## 🐳 6. Despliegue en Dokploy / Docker
+## 🐳 6. Despliegue con Docker Compose
 
-El contenedor está optimizado en arquitectura multi-stage con usuario no-root (`appuser`) y `git` preinstalado. Durante el build de Docker, clona automáticamente el repositorio oficial de leyes `legalize-ar`:
+La API está completamente empaquetada para correr como servicio autónomo e independiente:
+- **Exposición Configurable de la API**: Mediante la variable `API_PORT` en el archivo `.env` (por defecto `8000`), podés exponer el puerto de la API al exterior o vincularlo localmente:
+  ```env
+  API_PORT=8000
+  ```
+- **Rate Limiting Defensivo en Redis**:
+  - Límite por IP de 15 solicitudes por minuto en `/api/v1/legal/chat`, `/api/v1/legal/analyze` y `/api/v1/legal/diff`.
+  - Ante excesos, responde con `HTTP 429 Too Many Requests` y cabecera `Retry-After`.
+- **Soporte para Reverse Proxy**: Si utilizás Nginx, Caddy o Cloudflare por delante, el backend respeta automáticamente las cabeceras `X-Forwarded-For` y `X-Real-IP`.
 
-1. En Dokploy, configurar el despliegue apuntando al repositorio de Git.
-2. Definir las variables de entorno en el panel de Dokploy.
-3. En el contenedor, ejecutar por única vez:
+### 🚀 Despliegue de la API con Docker Compose
+
+```bash
+# 1. Clonar el repositorio y configurar variables de entorno
+cp .env.example .env
+
+# 2. Levantar los servicios de backend (PostgreSQL 16, Redis 7, API FastAPI, Worker de Ingesta, Phoenix)
+docker compose up -d --build
+
+# 3. Inicializar esquemas e ingesta inicial de leyes prioritarias
+docker compose exec api python -m scripts.init_db
+docker compose exec api python -m scripts.legal_bootstrap --priority --skip-embeddings
+```
+
+La API estará lista y accesible en: **`http://localhost:8000`** (o el puerto configurado en `API_PORT`).
+Documentación Swagger interactiva: `http://localhost:8000/docs`.
+
+### 💻 Desarrollo Local Rápido (Sin Docker)
+
+```bash
+# Iniciar la API FastAPI
+uvicorn app.main:asgi_app --host 127.0.0.1 --port 8000 --reload
+```
+
+### ☁️ Despliegue en Dokploy
+
+1. En Dokploy, configurar el despliegue de la aplicación apuntando al repositorio de Git.
+2. Definir las variables de entorno en el panel de Dokploy basándote en `.env.example`.
+3. En la consola del contenedor API, ejecutar:
    ```bash
    python -m scripts.init_db
    python -m scripts.legal_bootstrap --priority --skip-embeddings
@@ -217,19 +253,21 @@ Métricas evaluadas:
 
 ---
 
-## 📚 8. Fuentes de Datos y Atribución Obligatoria
+## 📚 8. Fuentes de Datos, Licencia y Atribución Obligatoria
 
-Los textos legales consolidados e históricos utilizados por este sistema provienen del proyecto abierto **[legalize-ar](https://github.com/legalize-dev/legalize-ar)** de la iniciativa **[Legalize](https://legalize.dev)**.
+### Licencia del Código Fuente (Apache 2.0 con Atribución Obligatoria)
+El código de este motor y API se distribuye bajo los términos de la **[Apache License 2.0](LICENSE)**.
 
-### Fuente Primaria Oficial
+> **Cláusula de Atribución Obligatoria**: Conforme a la sección 4 de la Licencia Apache 2.0 y el archivo [`NOTICE`](NOTICE), cualquier persona o entidad que redistribuya, modifique, use o exponga esta API o software derivado (incluyendo servicios sobre redes o SaaS) **está legalmente obligada a preservar los avisos de derechos de autor y dar crédito y reconocimiento expreso a Ian Diduch y al proyecto Legalar** (enlazando a https://github.com/iandiduch/Legalar y https://legalar.onys.app).
+
+### Fuente Primaria Oficial de Leyes
 - **InfoLEG / SAIJ**: Dirección Nacional del Sistema Argentino de Información Jurídica (SAIJ), dependiente del Ministerio de Justicia de la República Argentina.
   - Catálogo legislativo mensual: [datos.jus.gob.ar/dataset/base-de-datos-legislativos-infoleg](https://datos.jus.gob.ar/dataset/base-de-datos-legislativos-infoleg)
   - Portal oficial: [www.infoleg.gob.ar](https://www.infoleg.gob.ar)
+  - Publicado bajo licencia Creative Commons Atribución 4.0 Internacional (CC-BY 4.0) (Resolución MINJUS 986/2016).
 
-### Licencia de los Datos
-> *Datos legislativos provistos por el Ministerio de Justicia de la República Argentina a través de la Dirección Nacional del Sistema Argentino de Información Jurídica (SAIJ). Publicados en https://datos.jus.gob.ar bajo licencia Creative Commons Atribución 4.0 Internacional (CC-BY 4.0) (Resolución MINJUS 986/2016).*
-
-El código del pipeline de ingesta y orquestación de este asistente se distribuye bajo licencia **MIT**, reconociendo y preservando la atribución de origen a **SAIJ / InfoLEG** y al proyecto **legalize-dev/legalize-ar**.
+### Repositorio Git de Leyes
+- Reconocimiento al proyecto de código abierto **[legalize-ar](https://github.com/legalize-dev/legalize-ar)** de la iniciativa **[Legalize](https://legalize.dev)** por la consolidación en Markdown y versionado Git de las normas.
 
 ---
 

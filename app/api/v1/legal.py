@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.legal.graph import build_legal_graph
 from app.agents.legal.state import LegalAgentState
 from app.core.config import Settings
-from app.core.security import require_scope
+from app.core.security import check_legal_rate_limit, require_scope
 from app.db.session import get_db, get_sessionmaker
 from app.domain.models import ApiKeyScope, ConfidenceLevel, FileType, QueryIntent
 from app.schemas.legal.chat import LegalChatRequest, LegalChatResponse, LegalValidationSummary
@@ -22,6 +22,11 @@ from app.services.legal.ingestion_worker import LegalIngestionService
 from app.services.legal.legalize_api_client import LegalizeApiClient
 from app.services.legal.local_diff_engine import LocalGitDiffEngine
 from app.services.legal.retriever import HybridLegalRetriever
+from app.services.legal.secure_file_parser import (
+    audit_prompt_injection,
+    extract_document_text,
+    validate_file_magic_bytes,
+)
 from app.services.llm_factory import build_chat_model
 from app.services.rag_service import build_embeddings_client, build_pinecone_client
 
@@ -77,6 +82,7 @@ async def legal_chat_endpoint(
     settings: Annotated[Settings, Depends(get_settings)],
     retriever: Annotated[HybridLegalRetriever, Depends(get_legal_retriever)],
     diff_client: Annotated[LegalizeApiClient, Depends(get_legalize_api_client)],
+    _rate_limit: Annotated[None, Depends(check_legal_rate_limit)] = None,
 ) -> LegalChatResponse:
     start_time = time.time()
     thread_id = request.thread_id or str(uuid.uuid4())
@@ -147,29 +153,21 @@ async def analyze_document_endpoint(
     file: UploadFile | None = File(default=None),
     raw_text: str | None = Form(default=None),
     document_type: str = Form(default="contrato"),
+    _rate_limit: Annotated[None, Depends(check_legal_rate_limit)] = None,
 ) -> LegalChatResponse:
     doc_content = ""
     if file and file.filename:
-        ext = file.filename.split(".")[-1].lower()
-        try:
-            ft = FileType(ext)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Tipo de archivo '{ext}' no soportado. Formatos válidos: pdf, docx, txt, md.",
-            )
-
-        temp_path = Path(settings.UPLOAD_DIR) / f"temp_{uuid.uuid4()}.{ext}"
-        temp_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            content = await file.read()
-            with open(temp_path, "wb") as f:
-                f.write(content)
-            pages = await parse_document(temp_path, ft)
-            doc_content = "\n\n".join(p.text for p in pages)
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
+        file_bytes = await file.read()
+        mime_type = validate_file_magic_bytes(
+            file_bytes=file_bytes,
+            filename=file.filename,
+            max_size=settings.MAX_FILE_UPLOAD_SIZE,
+        )
+        doc_content = await extract_document_text(
+            file_bytes=file_bytes,
+            mime_type=mime_type,
+            settings=settings,
+        )
     elif raw_text:
         doc_content = raw_text.strip()
     else:
@@ -178,11 +176,14 @@ async def analyze_document_endpoint(
             detail="Debe proporcionar un archivo (file) o el texto plano del documento (raw_text).",
         )
 
-    if len(doc_content) < 20:
+    if len(doc_content.strip()) < 20:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El documento es demasiado corto para realizar un análisis jurídico consistente.",
         )
+
+    # Auditoría activa de seguridad contra Prompt Injection antes de llegar al LLM
+    audit_prompt_injection(doc_content)
 
     req = LegalChatRequest(
         query=f"Auditar el siguiente {document_type} a la luz del derecho argentino:",
@@ -248,6 +249,7 @@ async def legal_diff_endpoint(
     date_a: str | None = Query(default=None, description="Fecha inicial (YYYY-MM-DD)"),
     date_b: str | None = Query(default=None, description="Fecha posterior (YYYY-MM-DD)"),
     api_client: LegalizeApiClient = Depends(get_legalize_api_client),
+    _rate_limit: Annotated[None, Depends(check_legal_rate_limit)] = None,
 ) -> DiffResponse:
     res = await api_client.get_diff(
         law_identifier=law_id,
