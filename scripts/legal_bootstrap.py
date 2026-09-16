@@ -36,6 +36,7 @@ from app.services.rag_service import (
     build_embeddings_client,
     build_pinecone_client,
     embed_texts,
+    ensure_index_exists,
 )
 
 logger = logging.getLogger("legal_bootstrap")
@@ -63,6 +64,7 @@ async def ingest_single_law(
     pinecone_index: Any,
     skip_embeddings: bool,
     batch_size: int,
+    force: bool = False,
 ) -> dict[str, int]:
     """Parsea una norma e inserta sus artículos en PostgreSQL y Pinecone con hashing selectivo."""
     full_path = os.path.join(settings.LEGALIZE_REPO_PATH, relative_path)
@@ -121,7 +123,7 @@ async def ingest_single_law(
     # 2. Comparar hashes de artículos
     for art in parsed.articles:
         prev_hash = existing_hashes.get(art.article_number)
-        if prev_hash == art.content_hash:
+        if not force and prev_hash == art.content_hash:
             skipped_count += 1
             continue
 
@@ -130,11 +132,15 @@ async def ingest_single_law(
         if not skip_embeddings and embeddings_client and pinecone_index:
             articles_to_embed.append((art, p_id))
 
-
     # 3. Generar embeddings por lotes si no se saltearon
     if articles_to_embed:
         texts = [a[0].contextualized_text for a in articles_to_embed]
-        vectors_data = await embed_texts(texts, embeddings_client)
+        vectors_data = []
+        embed_chunk_size = 50
+        for b_idx in range(0, len(texts), embed_chunk_size):
+            chunk = texts[b_idx : b_idx + embed_chunk_size]
+            chunk_vectors = await embed_texts(chunk, embeddings_client)
+            vectors_data.extend(chunk_vectors)
 
         pinecone_vectors = []
         for (art, p_id), vector in zip(articles_to_embed, vectors_data, strict=True):
@@ -255,6 +261,7 @@ async def run_bootstrap(args: argparse.Namespace) -> None:
         try:
             embeddings_client = build_embeddings_client(settings)
             pinecone_c = build_pinecone_client(settings)
+            await ensure_index_exists(pinecone_c, settings)
             pinecone_index = await pinecone_c.index(name=settings.PINECONE_INDEX_NAME)
         except Exception as exc:
             print(f"[!] Error inicializando clientes de vectores: {exc}")
@@ -278,6 +285,7 @@ async def run_bootstrap(args: argparse.Namespace) -> None:
                     pinecone_index=pinecone_index,
                     skip_embeddings=args.skip_embeddings,
                     batch_size=args.batch_size,
+                    force=args.force,
                 )
             dt = time.time() - t0
             total_articles += counts["articles_indexed"]
@@ -326,6 +334,7 @@ def main() -> None:
     parser.add_argument("--all", action="store_true", help="Indexar todas las leyes de repo_legalize_ar/ar/")
     parser.add_argument("--limit", type=int, help="Límite máximo de leyes a procesar con --all")
     parser.add_argument("--skip-embeddings", action="store_true", help="Omitir generación de vectores OpenAI (solo PostgreSQL FTS)")
+    parser.add_argument("--force", action="store_true", help="Forzar reindexación y regeneración de embeddings ignorando hashes existentes")
     parser.add_argument("--batch-size", type=int, default=100, help="Tamaño de lote para upsert en Pinecone")
 
     args = parser.parse_args()
