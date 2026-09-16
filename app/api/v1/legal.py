@@ -1,11 +1,16 @@
 """Endpoints de la API para el Agente Legal Argentino."""
 
+import asyncio
+import json
+import logging
+import re
 import time
 import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +35,8 @@ from app.services.legal.secure_file_parser import (
 from app.services.llm_factory import build_chat_model
 from app.services.rag_service import build_embeddings_client, build_pinecone_client
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/legal", tags=["Legal Agent"])
 
@@ -137,6 +144,108 @@ async def legal_chat_endpoint(
         confidence=final_state.get("confidence", ConfidenceLevel.MEDIUM),
         validation=val_res,
         processing_time_seconds=round(duration, 3),
+    )
+
+
+@router.post(
+    "/chat/stream",
+    summary="Consulta Jurídica con Streaming de Respuesta Final",
+    description="Ejecuta la orquestación multi-agente internamente y transmite la respuesta final validada en tiempo real mediante Server-Sent Events (SSE).",
+)
+async def legal_chat_stream_endpoint(
+    request: LegalChatRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    retriever: Annotated[HybridLegalRetriever, Depends(get_legal_retriever)],
+    diff_client: Annotated[LegalizeApiClient, Depends(get_legalize_api_client)],
+    _rate_limit: Annotated[None, Depends(check_legal_rate_limit)] = None,
+):
+    start_time = time.time()
+    thread_id = request.thread_id or str(uuid.uuid4())
+
+    async def event_generator():
+        llm = build_chat_model(settings)
+        app_graph = build_legal_graph(checkpointer=None)
+
+        initial_state: LegalAgentState = {
+            "messages": [HumanMessage(content=request.query)],
+            "thread_id": thread_id,
+            "query": request.query,
+            "intent": QueryIntent.LEGAL_CONSULTATION,
+            "citations": [],
+            "draft_answer": None,
+            "validation_result": None,
+            "document_text": None,
+            "document_type": None,
+            "diff_request_params": None,
+            "diff_result": None,
+            "final_answer": None,
+            "confidence": ConfidenceLevel.HIGH,
+            "iteration": 0,
+        }
+
+        config = {
+            "configurable": {
+                "llm_client": llm,
+                "legal_retriever": retriever,
+                "legalize_api_client": diff_client,
+                "settings": settings,
+            }
+        }
+
+        try:
+            final_state = await app_graph.ainvoke(initial_state, config=config)
+        except Exception as exc:
+            logger.error("Error en ejecución del agente legal: %s", exc)
+            yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
+            return
+
+        final_answer = (
+            final_state.get("final_answer")
+            or final_state.get("draft_answer")
+            or "No se pudo generar respuesta."
+        )
+        raw_citations = final_state.get("citations", [])
+        citations_data = [
+            c.model_dump() if hasattr(c, "model_dump") else dict(c)
+            for c in raw_citations
+        ]
+        val_res = final_state.get("validation_result")
+        val_dict = (
+            val_res.model_dump()
+            if hasattr(val_res, "model_dump")
+            else ({"is_valid": True, "all_norms_in_force": True, "unsupported_claims": [], "warning_notes": []})
+        )
+
+        # 1. Notificar inicio de la respuesta final
+        yield f"event: start\ndata: {json.dumps({'thread_id': thread_id})}\n\n"
+
+        # 2. Transmitir tokens de la respuesta final validada
+        tokens = re.findall(r"\S+|\s+", final_answer)
+        for token in tokens:
+            yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+            await asyncio.sleep(0.012)
+
+        # 3. Notificar finalización con metadatos completos y citas oficiales
+        duration = time.time() - start_time
+        done_payload = {
+            "thread_id": thread_id,
+            "query": request.query,
+            "answer": final_answer,
+            "citations": citations_data,
+            "confidence": final_state.get("confidence", ConfidenceLevel.MEDIUM),
+            "validation": val_dict,
+            "processing_time_seconds": round(duration, 3),
+        }
+        yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
