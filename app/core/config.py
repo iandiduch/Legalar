@@ -31,6 +31,26 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["*"]
     DOCS_ENABLED: bool | None = None
 
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            v_clean = v.strip()
+            if not v_clean:
+                return ["*"]
+            if v_clean.startswith("[") and v_clean.endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(v_clean)
+                    if isinstance(parsed, list):
+                        return [str(x).strip() for x in parsed]
+                except Exception:
+                    pass
+            return [x.strip() for x in v_clean.split(",") if x.strip()]
+        return ["*"]
+
 
     @field_validator("DOCS_ENABLED", mode="before")
     @classmethod
