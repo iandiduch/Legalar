@@ -1,0 +1,130 @@
+# ==============================================================================
+# Orquestación para Dokploy (Producción)
+# Conecta el servicio API a dokploy-network para permitir comunicación interna
+# con el frontend Nginx (reverse proxy) sin exponer la API al exterior.
+# ==============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-intelligence_system}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-intelligence_system}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  init:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    command: ["python", "-m", "scripts.init_db"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/data/uploads
+
+  api:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_COLLECTOR_ENDPOINT:-http://phoenix:6006/v1/traces}
+      UPLOAD_DIR: /app/data/uploads
+    expose:
+      - "8000"
+    networks:
+      - default
+      - dokploy-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - uploads_data:/app/data/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u, sys; sys.exit(0 if u.urlopen('http://localhost:8000/api/v1/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  ingestion-worker:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_COLLECTOR_ENDPOINT:-http://phoenix:6006/v1/traces}
+      UPLOAD_DIR: /app/data/uploads
+    command: ["python", "-m", "app.services.ingestion_worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - uploads_data:/app/data/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis,os,sys; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'),port=int(os.environ.get('REDIS_PORT','6379'))); sys.exit(0 if r.get('worker:ingestion:heartbeat') else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    ports:
+      - "6006:6006"
+    volumes:
+      - phoenix_data:/mnt/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  phoenix_data:
+  uploads_data:
+
+networks:
+  dokploy-network:
+    external: true
