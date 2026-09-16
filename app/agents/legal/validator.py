@@ -32,6 +32,7 @@ Criterios de validación:
 2. ¿Se afirma la vigencia de una norma derogada o modificada (ej: referirse a la Ley de Alquileres 27.551 como vigente cuando fue derogada por el DNU 70/2023)?
 3. ¿La respuesta agregó afirmaciones contundentes que no figuran en la evidencia legal?
 4. Si la respuesta es jurídicamente sólida, refina la redacción para garantizar máxima claridad profesional.
+5. REGLA ESTRICTA DE ESTILO: La respuesta final debe ser directa y en Markdown. PROHIBIDO incluir saludos de carta ("Estimado/a", "Colega") o firmas/despedidas ("Atentamente", "Quedo a su disposición").
 """
 
 

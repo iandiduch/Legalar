@@ -26,6 +26,10 @@ Tu análisis debe:
 2. Identificar cláusulas abusivas, nulas, de nulidad relativa o que violen el orden público.
 3. Contrastar con las normas específicas del Código y leyes aplicables.
 4. Proponer redacciones alternativas recomendadas para proteger los derechos de la parte.
+
+REGLAS DE FORMATO:
+- Responde de forma directa y estructurada en Markdown.
+- PROHIBIDO incluir saludos de carta ("Estimado", "Colega") o despedidas/firmas ("Atentamente"). Ve directo al informe.
 """
 
 
