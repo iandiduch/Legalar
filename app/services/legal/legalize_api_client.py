@@ -1,24 +1,58 @@
-"""Cliente resiliente para la API de Legalize con conmutación por cuota y fallback local.
+"""Cliente resiliente para la API de Legalize con SDK oficial, conmutación por cuota y fallback local.
 
-Gestiona el límite gratuito de ~2.000 llamadas al mes mediante control local de cuota.
-Si se excede el límite mensual o la API responde 429 Too Many Requests, conmuta
-transparentemente al LocalGitDiffEngine sin interrumpir la operación del usuario.
+Gestiona la integración con legalize.dev mediante la librería oficial `legalize` (AsyncLegalize),
+garantizando la resolución estricta de parámetros obligatorios (date_a, date_b) para evitar errores HTTP 422,
+normalización de anclas de artículos con reintento ante sugerencias `closest`, control de cuota mensual
+y fallback transparente a `LocalGitDiffEngine`.
 """
 
+import json
 import logging
+import re
 from typing import Any
 
-import httpx
+from legalize import APIError, AsyncLegalize, NotFoundError, RateLimitError
 
 from app.core.config import Settings
-from app.schemas.legal.diff import DiffResponse
+from app.schemas.legal.diff import ArticleDiff, DiffResponse
 from app.services.legal.local_diff_engine import LocalGitDiffEngine
 
 logger = logging.getLogger(__name__)
 
 
+def normalize_article_anchor(article: str) -> str:
+    """Normaliza una referencia o número de artículo al formato de ancla requerido por Legalize API.
+
+    Ejemplos:
+        '92' -> 'articulo-92'
+        '92 ter' -> 'articulo-92-ter'
+        'Art. 1198' -> 'articulo-1198'
+        'articulo-92-ter' -> 'articulo-92-ter'
+    """
+    cleaned = article.strip().lower()
+    cleaned = cleaned.replace("º", "").replace("°", "").replace(".", "").strip()
+    cleaned = re.sub(r"^(artículo|articulo|art)[\s\-_]*", "", cleaned).strip()
+    cleaned = re.sub(r"[\s_]+", "-", cleaned)
+    return f"articulo-{cleaned}"
+
+
+def extract_closest_anchor(err: NotFoundError) -> str | None:
+    """Extrae la primera ancla sugerida del cuerpo de error si Legalize API devolvió 'closest'."""
+    if not err.body:
+        return None
+    try:
+        raw_body = err.body.decode("utf-8") if isinstance(err.body, bytes) else str(err.body)
+        body_data = json.loads(raw_body)
+        closest = body_data.get("closest") or body_data.get("detail", {}).get("closest")
+        if closest and isinstance(closest, list) and len(closest) > 0:
+            return str(closest[0])
+    except Exception:
+        pass
+    return None
+
+
 class LegalizeApiClient:
-    """Cliente HTTP para Legalize API con control de cuota y fallback transparente a Git."""
+    """Cliente oficial para Legalize API con control de cuota, prevención de 422 y fallback a Git."""
 
     def __init__(self, settings: Settings, local_diff_engine: LocalGitDiffEngine | None = None) -> None:
         self.settings = settings
@@ -27,17 +61,109 @@ class LegalizeApiClient:
         self.monthly_limit = settings.LEGALIZE_API_MONTHLY_LIMIT
         self._local_engine = local_diff_engine or LocalGitDiffEngine(settings.LEGALIZE_REPO_PATH)
         self._calls_this_month = 0
+        self._sdk_client: AsyncLegalize | None = None
 
     @property
     def is_quota_available(self) -> bool:
         """Verifica si aún queda saldo en la cuota gratuita mensual."""
         return self._calls_this_month < self.monthly_limit
 
-    def _get_headers(self) -> dict[str, str]:
-        headers = {"Accept": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        return headers
+    @property
+    def has_valid_api_key(self) -> bool:
+        """Verifica que la clave de API tenga el formato esperado por el SDK de Legalize ('leg_...')."""
+        return bool(self.api_key and self.api_key.startswith("leg_"))
+
+    def _get_sdk_client(self) -> AsyncLegalize | None:
+        """Obtiene o reutiliza la instancia de AsyncLegalize con conexión asíncrona."""
+        if not self.has_valid_api_key:
+            return None
+        if self._sdk_client is None:
+            self._sdk_client = AsyncLegalize(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                timeout=20.0,
+                max_retries=2,
+            )
+        return self._sdk_client
+
+    async def aclose(self) -> None:
+        """Cierra ordenadamente los recursos de red del cliente del SDK."""
+        if self._sdk_client is not None:
+            try:
+                await self._sdk_client.aclose()
+            except Exception as exc:
+                logger.debug("Excepción silenciada al cerrar AsyncLegalize: %s", exc)
+            self._sdk_client = None
+
+    async def _resolve_dates(
+        self,
+        client: AsyncLegalize,
+        law_identifier: str,
+        country: str,
+        date_a: str | None,
+        date_b: str | None,
+    ) -> tuple[str | None, str | None, str | None]:
+        """Resuelve dinámicamente dos fechas válidas (YYYY-MM-DD) para el diff.
+
+        Devuelve: (date_a, date_b, error_reason)
+        """
+        # Si ambas fechas ya fueron provistas explícitamente
+        if date_a and date_b:
+            da = date_a.strip()[:10]
+            db = date_b.strip()[:10]
+            if da > db:
+                da, db = db, da
+            if da == db:
+                return None, None, "equal_dates"
+            return da, db, None
+
+        # Si faltan fechas, consultar el historial oficial de reformas de la norma
+        try:
+            reforms_res = await client.reforms.list(country=country, law_id=law_identifier)
+            reforms = reforms_res.reforms if reforms_res else []
+        except NotFoundError:
+            logger.info("Norma %s no registrada en Legalize API (404). Usando fallback local.", law_identifier)
+            return None, None, "law_not_found"
+        except RateLimitError:
+            logger.warning("Cuota mensual de Legalize API alcanzada al listar reformas (429).")
+            self._calls_this_month = self.monthly_limit
+            return None, None, "quota_exceeded"
+        except Exception as exc:
+            logger.warning("Fallo al consultar reformas de %s: %s. Conmutando a fallback local.", law_identifier, exc)
+            return None, None, "reforms_lookup_failed"
+
+        # Si no posee reformas registradas (ej: DNU-70-2023 u ordenanzas en versión original)
+        if len(reforms) == 0:
+            logger.info("Norma %s tiene 0 reformas registradas en Legalize API (versión original única).", law_identifier)
+            return None, None, "zero_reforms"
+
+        # Si posee 2 o más reformas, comparar la última versión reformada contra la versión anterior
+        if len(reforms) >= 2:
+            resolved_b = date_b.strip()[:10] if date_b else reforms[0].date
+            resolved_a = date_a.strip()[:10] if date_a else reforms[1].date
+            if resolved_a > resolved_b:
+                resolved_a, resolved_b = resolved_b, resolved_a
+            if resolved_a == resolved_b:
+                return None, None, "equal_dates"
+            return resolved_a, resolved_b, None
+
+        # Si posee exactamente 1 reforma, intentar obtener la fecha de publicación original como date_a
+        resolved_b = date_b.strip()[:10] if date_b else reforms[0].date
+        resolved_a = date_a.strip()[:10] if date_a else None
+
+        if not resolved_a:
+            try:
+                meta = await client.laws.meta(country=country, law_id=law_identifier)
+                if meta.publication_date and meta.publication_date < resolved_b:
+                    resolved_a = meta.publication_date
+            except Exception as exc:
+                logger.debug("No se pudo obtener meta para fecha inicial de %s: %s", law_identifier, exc)
+
+        if not resolved_a or resolved_a == resolved_b:
+            logger.info("No fue posible resolver fecha anterior para única reforma de %s.", law_identifier)
+            return None, None, "single_reform_without_base"
+
+        return resolved_a, resolved_b, None
 
     async def get_diff(
         self,
@@ -47,10 +173,19 @@ class LegalizeApiClient:
         article: str | None = None,
         country: str = "ar",
     ) -> DiffResponse:
-        """Consulta el diff a la API o conmuta automáticamente al motor local si no hay cuota o falla."""
-        # 1. Si no hay cuota disponible o no hay API key, ir directo a local
-        if not self.is_quota_available or not self.api_key:
-            logger.info("Usando LocalGitDiffEngine para %s (Cuota agotada o sin API key)", law_identifier)
+        """Consulta el diff a Legalize API con resolución estricta anti-422 y fallback a Git local.
+
+        Garantías del flujo:
+        1. Si no hay cuota disponible o la API key no es válida, conmuta de inmediato al motor local.
+        2. Si faltan date_a o date_b, consulta el historial oficial de reformas para deducirlas.
+        3. Si la norma es versión única (0 reformas) o no existe en la API remota (404), conmuta a Git
+           local sin ejecutar ninguna llamada a /diff que resulte en error 422 o timeout.
+        4. Si se solicita un artículo y la API sugiere alternativas ('closest'), reintenta automáticamente.
+        5. Procesa normas extensas con 'diff_omitted' presentando los artículos modificados.
+        """
+        # 1. Fallback temprano si no hay cuota o API key adecuada
+        if not self.is_quota_available or not self.has_valid_api_key:
+            logger.info("Usando LocalGitDiffEngine para %s (Cuota agotada o API key ausente)", law_identifier)
             return self._local_engine.compute_diff(
                 law_identifier=law_identifier,
                 date_a=date_a,
@@ -58,65 +193,167 @@ class LegalizeApiClient:
                 article_number=article,
             )
 
-        # 2. Intentar llamar a la API
-        params: dict[str, Any] = {}
-        if date_a:
-            params["date_a"] = date_a
-        if date_b:
-            params["date_b"] = date_b
-        if article:
-            params["article"] = article
+        client = self._get_sdk_client()
+        if client is None:
+            return self._local_engine.compute_diff(
+                law_identifier=law_identifier,
+                date_a=date_a,
+                date_b=date_b,
+                article_number=article,
+            )
 
-        url = f"{self.base_url}/api/v1/{country}/laws/{law_identifier}/diff"
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(url, params=params, headers=self._get_headers())
-
-                if resp.status_code == 200:
-                    self._calls_this_month += 1
-                    data = resp.json()
-                    return DiffResponse(
-                        law_identifier=law_identifier,
-                        law_title=data.get("title") or law_identifier,
-                        article_number=article,
-                        diff_source="api",
-                        diff_text=data.get("diff") or "Sin cambios registrados.",
-                        analysis=data.get("analysis") or "Diff provisto por Legalize API.",
-                        article_diffs=[],
-                    )
-
-                if resp.status_code == 429:
-                    logger.warning("Cuota mensual de Legalize API alcanzada (429). Conmutando a LocalGitDiffEngine.")
-                    self._calls_this_month = self.monthly_limit  # Marcar cuota agotada
-                    return self._local_engine.compute_diff(
-                        law_identifier=law_identifier,
-                        date_a=date_a,
-                        date_b=date_b,
-                        article_number=article,
-                    )
-
-                logger.warning(
-                    "Respuesta no exitosa de Legalize API (status %d). Conmutando a fallback local.",
-                    resp.status_code,
-                )
-        except Exception as exc:
-            logger.warning("Fallo al conectar con Legalize API (%s). Conmutando a fallback local.", exc)
-
-        # 3. Fallback en caso de cualquier error
-        return self._local_engine.compute_diff(
+        # 2. Resolver fechas requeridas (date_a y date_b) para evitar HTTP 422
+        resolved_a, resolved_b, reason = await self._resolve_dates(
+            client=client,
             law_identifier=law_identifier,
+            country=country,
             date_a=date_a,
             date_b=date_b,
-            article_number=article,
         )
 
-    async def get_changes(self, since: str | None = None, cursor: int | None = None, country: str = "ar") -> dict[str, Any] | None:
+        # Si no hay dos fechas válidas, NUNCA llamar a /diff (evita el 422 en la API remota)
+        if not resolved_a or not resolved_b:
+            logger.info(
+                "Conmutando a LocalGitDiffEngine para %s (Razón de fechas: %s)",
+                law_identifier,
+                reason,
+            )
+            return self._local_engine.compute_diff(
+                law_identifier=law_identifier,
+                date_a=date_a,
+                date_b=date_b,
+                article_number=article,
+            )
+
+        # 3. Preparar parámetros con fechas verificadas
+        params: dict[str, Any] = {
+            "date_a": resolved_a,
+            "date_b": resolved_b,
+        }
+
+        target_article = None
+        if article:
+            target_article = normalize_article_anchor(article)
+            params["article"] = target_article
+
+        endpoint_url = f"/api/v1/{country}/laws/{law_identifier}/diff"
+
+        # 4. Invocar la API mediante el SDK oficial
+        try:
+            data = await client.request("GET", endpoint_url, params=params)
+            self._calls_this_month += 1
+        except NotFoundError as err:
+            # Si el artículo no fue hallado pero la API sugiere alternativas en 'closest'
+            closest_anchor = extract_closest_anchor(err)
+            if closest_anchor and closest_anchor != target_article:
+                logger.info("Reintentando diff de %s con ancla sugerida por la API: %s", law_identifier, closest_anchor)
+                params["article"] = closest_anchor
+                try:
+                    data = await client.request("GET", endpoint_url, params=params)
+                    self._calls_this_month += 1
+                except Exception as retry_err:
+                    logger.warning("Fallo en reintento con ancla sugerida %s: %s", closest_anchor, retry_err)
+                    return self._local_engine.compute_diff(
+                        law_identifier=law_identifier,
+                        date_a=resolved_a,
+                        date_b=resolved_b,
+                        article_number=article,
+                    )
+            else:
+                logger.info("Artículo o norma no encontrado en Legalize API (%s). Conmutando a local.", err)
+                return self._local_engine.compute_diff(
+                    law_identifier=law_identifier,
+                    date_a=resolved_a,
+                    date_b=resolved_b,
+                    article_number=article,
+                )
+        except RateLimitError:
+            logger.warning("Cuota mensual de Legalize API alcanzada (429). Conmutando a LocalGitDiffEngine.")
+            self._calls_this_month = self.monthly_limit
+            return self._local_engine.compute_diff(
+                law_identifier=law_identifier,
+                date_a=resolved_a,
+                date_b=resolved_b,
+                article_number=article,
+            )
+        except (APIError, Exception) as exc:
+            logger.warning("Error al consultar Legalize API (%s). Conmutando a LocalGitDiffEngine.", exc)
+            return self._local_engine.compute_diff(
+                law_identifier=law_identifier,
+                date_a=resolved_a,
+                date_b=resolved_b,
+                article_number=article,
+            )
+
+        # 5. Formatear la respuesta estructurada desde Legalize API
+        law_title = data.get("citation") or data.get("title") or law_identifier
+        diff_omitted = bool(data.get("diff_omitted", False))
+        diff_text = data.get("diff")
+
+        if not diff_text:
+            if diff_omitted:
+                changed = data.get("changed_headings") or []
+                items_str = "\n".join(
+                    f"- {h.get('title', 'Artículo')} (ancla: {h.get('anchor', 'n/a')})"
+                    for h in changed
+                )
+                diff_text = (
+                    f"La norma supera el límite de longitud para diff completo sin segmentar.\n"
+                    f"Se detectaron reformas entre {resolved_a} y {resolved_b} en los siguientes artículos:\n"
+                    f"{items_str or 'Sin artículos especificados.'}\n\n"
+                    f"Nota oficial: {data.get('note', 'Consulte un artículo específico para ver su redacción comparada.')}"
+                )
+            else:
+                diff_text = "No se registraron diferencias textuales entre las versiones analizadas."
+
+        analysis = (
+            data.get("note")
+            or data.get("analysis")
+            or f"Comparación histórica entre {resolved_a} y {resolved_b} provista por Legalize API."
+        )
+
+        article_diffs: list[ArticleDiff] = []
+        if article and data.get("diff"):
+            article_diffs.append(
+                ArticleDiff(
+                    law_identifier=law_identifier,
+                    article_number=article,
+                    date_a=resolved_a,
+                    date_b=resolved_b,
+                    sha_a=data.get("sha_a"),
+                    sha_b=data.get("sha_b"),
+                    text_a="(Versión previa en Legalize API)",
+                    text_b="(Versión reformada en Legalize API)",
+                    unified_diff=data["diff"],
+                    has_changes=bool(data.get("changed", True)),
+                    summary_of_changes=data.get("citation"),
+                )
+            )
+
+        return DiffResponse(
+            law_identifier=law_identifier,
+            law_title=law_title,
+            article_number=article,
+            diff_source="api",
+            diff_text=diff_text,
+            analysis=analysis,
+            article_diffs=article_diffs,
+        )
+
+    async def get_changes(
+        self,
+        since: str | None = None,
+        cursor: int | None = None,
+        country: str = "ar",
+    ) -> dict[str, Any] | None:
         """Consulta el endpoint /changes para saber qué normas sufrieron reformas recientemente."""
-        if not self.is_quota_available or not self.api_key:
+        if not self.is_quota_available or not self.has_valid_api_key:
             return None
 
-        url = f"{self.base_url}/api/v1/{country}/changes"
+        client = self._get_sdk_client()
+        if client is None:
+            return None
+
         params: dict[str, Any] = {}
         if since:
             params["since"] = since
@@ -124,15 +361,12 @@ class LegalizeApiClient:
             params["cursor"] = cursor
 
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                resp = await client.get(url, params=params, headers=self._get_headers())
-                if resp.status_code == 200:
-                    self._calls_this_month += 1
-                    return resp.json()
-                if resp.status_code == 429:
-                    self._calls_this_month = self.monthly_limit
-                    return None
+            data = await client.request("GET", f"/api/v1/{country}/changes", params=params)
+            self._calls_this_month += 1
+            return data
+        except RateLimitError:
+            self._calls_this_month = self.monthly_limit
+            return None
         except Exception as exc:
             logger.warning("Fallo al consultar changes en Legalize API: %s", exc)
-
-        return None
+            return None

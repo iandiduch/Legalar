@@ -37,6 +37,7 @@ GitPython==3.1.44
 # HTTP / resiliencia
 httpx==0.28.1
 tenacity==9.1.2
+legalize>=0.3.0
 
 # Logging estructurado
 python-json-logger==3.3.0

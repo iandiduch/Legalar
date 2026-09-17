@@ -136,6 +136,11 @@ async def lifespan(app: FastAPI):
         await app.state.checkpointer_pool.close()
     if getattr(app.state, "db_engine", None) is not None:
         await app.state.db_engine.dispose()
+    if getattr(app.state, "legalize_api_client", None) is not None:
+        try:
+            await app.state.legalize_api_client.aclose()
+        except Exception:
+            pass
     shutdown_telemetry()
     logger.info("lifespan.shutdown_complete")
 
