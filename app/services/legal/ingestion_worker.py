@@ -142,7 +142,7 @@ class LegalIngestionService:
                                 "country": law_data.country,
                                 "infoleg_url": law_data.source or "",
                                 "commit_sha": commit_sha or "",
-                                "text": art.content_raw[:1000],  # Primeros caracteres como snippet
+                                "text": art.content_raw[:3500],  # Texto normativo amplio para evidencia
                             },
                         }
                     )

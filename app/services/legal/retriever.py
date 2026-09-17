@@ -61,7 +61,23 @@ class HybridLegalRetriever:
         )
 
         fused = self._reciprocal_rank_fusion(lexical_results, dense_results, top_k=top_k)
+        await self._enrich_full_text(fused)
         return fused
+
+    async def retrieve_citations(
+        self,
+        query: str,
+        top_k: int = 8,
+        include_historical: bool = False,
+        law_filter: list[str] | None = None,
+    ) -> list[LegalCitation]:
+        """Alias para search compatible con la tool modular de búsqueda jurídica (rag_tools)."""
+        return await self.search(
+            query=query,
+            top_k=top_k,
+            include_historical=include_historical,
+            law_filter=law_filter,
+        )
 
     async def _search_lexical_postgres(
         self,
@@ -159,7 +175,7 @@ class HybridLegalRetriever:
         top_k: int,
         rrf_constant: int = 60,
     ) -> list[LegalCitation]:
-        """Fusiona rankings léxicos y vectoriales usando Reciprocal Rank Fusion."""
+        """Fusiona rankings léxicos y vectoriales usando Reciprocal Rank Fusion preservando texto completo."""
         scores: dict[str, float] = {}
         item_data: dict[str, LegalCitation] = {}
 
@@ -169,18 +185,28 @@ class HybridLegalRetriever:
             score = 1.0 / (rrf_constant + rank_idx + 1)
             scores[key] = scores.get(key, 0.0) + score
 
+            raw_content = (art.content or "").strip()
+            content_quote = (
+                raw_content if len(raw_content) <= 4000
+                else raw_content[:4000].strip() + "\n... [artículo extenso truncado a 4000 caracteres]"
+            )
+
             if key not in item_data:
                 item_data[key] = LegalCitation(
                     law_identifier=art.law_identifier,
                     law_title=law.title if law else art.law_identifier,
                     article_number=art.article_number,
                     epigraph=art.epigraph,
-                    exact_quote=art.content[:300] + ("..." if len(art.content) > 300 else ""),
+                    exact_quote=content_quote,
                     status=art.status,
                     infoleg_url=law.source_url if law else None,
                     commit_sha=art.commit_sha,
                     confidence_score=score,
                 )
+            else:
+                existing = item_data[key]
+                if len(content_quote) > len(existing.exact_quote or ""):
+                    existing.exact_quote = content_quote
 
         # Procesar denso
         for rank_idx, match in enumerate(dense):
@@ -192,18 +218,28 @@ class HybridLegalRetriever:
             score = 1.0 / (rrf_constant + rank_idx + 1)
             scores[key] = scores.get(key, 0.0) + score
 
+            raw_dense = (match.get("content") or "").strip()
+            dense_quote = (
+                raw_dense if len(raw_dense) <= 4000
+                else raw_dense[:4000].strip() + "\n... [artículo extenso truncado a 4000 caracteres]"
+            )
+
             if key not in item_data:
                 item_data[key] = LegalCitation(
                     law_identifier=law_id,
                     law_title=match.get("law_title") or law_id,
                     article_number=art_num,
                     epigraph=match.get("epigraph"),
-                    exact_quote=(match.get("content") or "")[:300] + "...",
+                    exact_quote=dense_quote,
                     status=match.get("status", "in_force"),
                     infoleg_url=match.get("infoleg_url"),
                     commit_sha=match.get("commit_sha"),
                     confidence_score=score,
                 )
+            else:
+                existing = item_data[key]
+                if len(dense_quote) > len(existing.exact_quote or ""):
+                    existing.exact_quote = dense_quote
 
         # Ordenar por score RRF acumulado
         sorted_keys = sorted(scores.keys(), key=lambda k: scores[k], reverse=True)[:top_k]
@@ -214,3 +250,30 @@ class HybridLegalRetriever:
             result.append(cit)
 
         return result
+
+    async def _enrich_full_text(self, citations: list[LegalCitation]) -> None:
+        """Enriquece las citas seleccionadas con el texto íntegro desde PostgreSQL."""
+        if not self.sessionmaker or not citations:
+            return
+
+        to_enrich = [c for c in citations if not c.exact_quote or len(c.exact_quote) < 1200 or c.exact_quote.endswith("...")]
+        if not to_enrich:
+            return
+
+        try:
+            async with self.sessionmaker() as session:
+                for cit in to_enrich:
+                    stmt = select(LegalArticle.content).where(
+                        LegalArticle.law_identifier == cit.law_identifier,
+                        LegalArticle.article_number == cit.article_number,
+                    ).limit(1)
+                    res = await session.execute(stmt)
+                    db_content = res.scalar_one_or_none()
+                    if db_content and len(db_content.strip()) > len(cit.exact_quote or ""):
+                        content_str = db_content.strip()
+                        cit.exact_quote = (
+                            content_str if len(content_str) <= 4000
+                            else content_str[:4000].strip() + "\n... [artículo extenso truncado a 4000 caracteres]"
+                        )
+        except Exception as exc:
+            logger.debug("No se pudo enriquecer texto completo desde BD: %s", exc)
