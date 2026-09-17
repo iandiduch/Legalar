@@ -67,7 +67,7 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
 
     if retriever:
         try:
-            citations = await retriever.search(query=search_query, top_k=6)
+            citations = await retriever.search(query=search_query, top_k=10)
         except Exception as exc:
             logger.error("Error en retriever híbrido: %s", exc)
 
