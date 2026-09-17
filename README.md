@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/LangGraph-Legal--Agent-orange?style=for-the-badge&logo=langchain&logoColor=white" alt="LangGraph" />
   <img src="https://img.shields.io/badge/OpenRouter%20%2F%20OpenAI-Flexible_Models-412991?style=for-the-badge&logo=openai&logoColor=white" alt="LLM" />
   <img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge&logo=apache&logoColor=white" alt="Apache 2.0" />
-  <img src="https://img.shields.io/badge/Tests-39_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
+  <img src="https://img.shields.io/badge/Tests-40_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
 </p>
 
 > 🌐 **Chat en Producción & Aplicación Web**: [https://legalar.onys.app](https://legalar.onys.app)
@@ -17,8 +17,9 @@
 Sistema conversacional y motor de análisis normativo de grado de producción especializado en **Derecho Positivo Argentino**. La arquitectura utiliza como fuente primaria de verdad el repositorio versionado **`legalize-dev/legalize-ar`** (~31.326 normas consolidadas en Markdown y versionadas en Git).
 
 La orquestación se basa en **LangGraph** bajo un flujo desacoplado: un **Ruteador Inteligente** clasifica la consulta mediante Structured Output estricto (Pydantic v2) hacia nodos de ejecución especializados:
-- **`Legal Agent`**: Consultas doctrinales y normativas respaldadas por un pipeline de **RAG Híbrido** (búsqueda semántica en Pinecone + Full-Text Search en PostgreSQL con índice GIN en español y fusión RRF).
-- **`Document Analyzer`**: Auditoría de contratos, convenios y cartas documento (PDF, DOCX, TXT) contrastados contra normas de orden público.
+- **`Legal Agent`**: Consultas doctrinales y normativas respaldadas por un pipeline de **RAG Híbrido Relacional** (búsqueda semántica en Pinecone + Full-Text Search en PostgreSQL con índice GIN en español, expansión relacional de consultas multi-norma y fusión RRF).
+- **`URL Fact-Checking`**: Auditoría de noticias y enlaces web externos bajo principio *zero-trust*, extrayendo el contenido de forma segura con protección SSRF y contrastándolo contra normas vigentes.
+- **`Document Analyzer`**: Auditoría de contratos, convenios y cartas documento (PDF, DOCX, TXT) con defensas contra inyección de prompts, zip-slip y bombas de descompresión.
 - **`Diff Node`**: Comparador histórico de reformas legislativas (ej: impacto del DNU 70/2023 sobre el Código Civil y Comercial y la Ley de Contrato de Trabajo) mediante un **motor Git local autónomo** con fallback de circuit-breaker sobre la API de Legalize.
 - **`Legal Validator`**: Guardrail jurídico independiente que audita la suficiencia de la evidencia, mitiga alucinaciones y alerta si se alega la vigencia de normas derogadas.
 
@@ -39,7 +40,7 @@ CHATBOT-LEGALIZE/
 │   │   └── legal/             # DTOs de chat, citas normativas (LegalCitation), diffs y auditoría de contratos
 │   ├── db/                    # Persistencia: SQLAlchemy 2.0 async (asyncpg), modelos legales (LegalLaw, LegalArticle, etc.)
 │   ├── services/              # Casos de uso y lógica de negocio:
-│   │   ├── legal/             # Parser Markdown InfoLEG, local Git diff engine, circuit breaker API, sync y RAG retriever
+│   │   ├── legal/             # Parser InfoLEG, Git diff local, query expander relacional, web reader seguro, file parser y RAG retriever
 │   │   ├── llm_factory.py     # Factoría unificada con soporte automático para OpenAI y OpenRouter
 │   │   ├── rag_service.py     # Cliente AsyncPinecone y generador de embeddings vectoriales
 │   │   └── prompt_manager.py  # Versionado dinámico de directivas de agentes en base de datos
@@ -48,7 +49,7 @@ CHATBOT-LEGALIZE/
 │   └── api/                   # FastAPI Gateway: routers v1 (/legal, /ingest, /prompts, /admin, /health), middlewares y auth
 ├── data/                      # Almacenamiento local: golden_set.json y evaluation_results.json
 ├── scripts/                   # CLI de inicialización (init_db), bootstrap legal (legal_bootstrap) y evaluación (evaluate_rag)
-├── tests/                     # Suite de pruebas automatizadas: unitarias, integración, seguridad y persistencia
+├── tests/                     # Suite de pruebas automatizadas: unitarias (40 tests), integración, seguridad y persistencia
 ├── Dockerfile                 # Contenedor multi-stage optimizado para Dokploy (con git y python 3.12)
 ├── docker-compose.yml         # Orquestación local (FastAPI, PostgreSQL 16, Redis, Phoenix opcional)
 ├── pyproject.toml             # Configuración unificada de herramientas de desarrollo
@@ -67,7 +68,7 @@ flowchart LR
     %% =========================================================
 
     U([Usuario / Abogado / Ciudadano])
-        -->|POST /api/v1/legal/chat| API[FastAPI Gateway]
+        -->|POST /api/v1/legal/chat o /chat/stream| API[FastAPI Gateway]
 
     subgraph CORE["Motor Jurídico · LangGraph"]
         direction TB
@@ -76,13 +77,15 @@ flowchart LR
 
         GRAPH --> ROUTER[Router Inteligente]
 
-        ROUTER -->|Consulta normativa| LEG[Legal Agent · RAG Híbrido]
-        ROUTER -->|Auditoría de contrato| DOC[Document Analyzer]
+        ROUTER -->|Consulta / Repregunta| LEG[Legal Agent · RAG Híbrido Relacional]
+        ROUTER -->|Auditoría de contrato| DOC[Document Analyzer · File Parser Seguro]
         ROUTER -->|Comparar reformas / historial| DIFF[Diff Node · Git Local]
+        ROUTER -.->|Enlace web a auditar| WEB[Web Reader SSRF-Safe]
 
+        WEB -->|Evidencia externa| LEG
         LEG --> VAL[Validador Jurídico]
         DOC --> VAL
-        DIFF --> VAL
+        DIFF --> END_OK([END · Comparativa Inmutable])
 
         VAL -->|Dictamen validado| END_OK([END · Respuesta con Citas])
 
@@ -102,34 +105,52 @@ flowchart LR
         API_LEG[Legalize.dev API<br/>Auxiliar / Fallback]
     end
 
-    LEG -->|Búsqueda densa| PINE
-    LEG -->|Búsqueda léxica| FTS
+    LEG -->|Búsqueda densa multi-query| PINE
+    LEG -->|FTS y artículos canónicos| FTS
     DIFF -->|diff / show / log| GIT
     DIFF -.->|Si quota < 2000| API_LEG
 ```
 
 ---
 
-## ⚡ 3. Motor de RAG Híbrido y Fusión RRF
+## ⚡ 3. Motor de RAG Híbrido Relacional y Fusión RRF
 
-Para garantizar máxima precisión en la recuperación de artículos jurídicos, el sistema combina:
+Para garantizar máxima precisión en la recuperación de artículos jurídicos y resolver consultas complejas que abarcan múltiples normas, el sistema opera bajo un pipeline en 4 capas:
 
-1. **Búsqueda Léxica en PostgreSQL (FTS)**:
-   - Los artículos se almacenan en la tabla `legal_articles` con un índice GIN sobre `to_tsvector('spanish', text_searchable)`.
-   - Permite encontrar términos técnicos literales exactos (ej: *"pacto comisorio"*, *"locación habitacional"*, *"artículo 245"*).
-2. **Búsqueda Vectorial Semántica en Pinecone**:
-   - Embeddings de 1536 dimensiones generados vía **OpenRouter / OpenAI** (`openai/text-embedding-3-small`) en el namespace `ar-legislation`.
-   - Permite capturar similitudes conceptuales aunque el usuario no use la terminología jurídica exacta.
-3. **Reciprocal Rank Fusion (RRF)**:
-   - Combina ambos rankings asignando un score compuesto:
-     $$RRF(d) = \frac{W_{lex}}{k + rank_{lex}(d)} + \frac{W_{vec}}{k + rank_{vec}(d)}$$
+1. **Query Rewriting Conversacional**:
+   - Ante repreguntas o aclaraciones del usuario (*"no entendí"*, *"explicame mejor"*, *"¿por qué?"*), el LLM reescribe la consulta contextualizándola sobre el tema legal de fondo del historial, garantizando que el retriever busque normas sustantivas y no textos genéricos.
+2. **Expansión Relacional Multi-Norma (`LegalQueryExpander`)**:
+   - Resuelve el problema dogmático de la **asimetría semántica** entre la Parte Especial y la Parte General de los códigos. Por ejemplo, en la pregunta *"¿cuánto tarda en prescribir el fraude?"*, descompone la búsqueda en:
+     - **Figura especial**: Delito de estafa y escala penal (Art. 172 CP).
+     - **Regla general de cálculo**: Cómputo de la prescripción según el máximo de la pena fijada para el delito (Art. 62 CP).
+     - **Causales dogmáticas**: Inicio del cómputo e interrupción/suspensión (Arts. 63 y 67 CP).
+   - Identifica identificadores canónicos directos (`canonical_articles`, ej: `LEY-11179:62`, `LEY-11179:172`, `DEC-390-1976:245`).
+3. **Recuperación Canónica Determinista & Multi-Query RRF**:
+   - **Búsqueda Canónica Exacta**: `retrieve_exact_articles` consulta directamente por `(law_identifier, article_number)` en PostgreSQL garantizando 100% de precisión en normas clave.
+   - **Búsqueda Concurrente**: `search_multi_query` ejecuta las sub-queries en paralelo vía `asyncio.gather`, combinando Búsqueda Léxica FTS en PostgreSQL (índice GIN `spanish` con `ts_rank_cd`) y Búsqueda Densa Semántica en Pinecone (1536 dim).
+   - **Reciprocal Rank Fusion (RRF)**: Fusiona y deduplica los candidatos de todas las sub-queries asegurando que tanto la figura especial como las reglas generales alcancen el ranking superior:
+     $$RRF(d) = \sum_{q \in Q} \left( \frac{W_{lex}}{k + rank_{lex}(d, q)} + \frac{W_{vec}}{k + rank_{vec}(d, q)} \right)$$
+4. **Filtrado de Citaciones Utilizadas (Attribution De-Noising)**:
+   - Elimina de raíz el *citation bloat*: coteja los artículos recuperados contra `articles_referenced` y las menciones textuales del dictamen generado.
+   - El cliente y el frontend reciben **únicamente las citas que efectivamente fundamentaron la respuesta**, evitando mostrar 10 fuentes cuando solo se emplearon 3 o 4.
 
 ---
 
-## ⚖️ 4. Motor de Diffs y Fallback Autónomo
+## 🛡️ 4. Motor de Diffs y Seguridad Defensiva
 
+### Motor de Diffs Autónomo
 - El endpoint `/api/v1/legal/diff` compara versiones históricas de cualquier ley o artículo específico.
-- **Fallback Circuit Breaker**: La API externa de `legalize.dev` tiene un límite gratuito mensual de 2.000 llamadas. El sistema cuenta con un monitor de consumo transparente: si la API alcanza su cupo o devuelve error `429 Too Many Requests`, el cliente conmuta de inmediato y de forma autónoma al **`LocalGitDiffEngine`**, que computa el diff sobre el repositorio Git local sin interrumpir el servicio ni generar costos.
+- **Fallback Circuit Breaker**: Si la API externa de `legalize.dev` alcanza su cupo mensual de 2.000 llamadas o devuelve `429 Too Many Requests`, el sistema conmuta automáticamente al **`LocalGitDiffEngine`**, que computa el diff sobre el repositorio Git local sin costos ni interrupciones.
+
+### Seguridad Defensiva en Ingesta de Documentos (`secure_file_parser.py`)
+- **Validación Estricta de Magic Bytes**: Inspección de cabeceras binarias reales (PDF `%PDF-`, DOCX `PK\x03\x04`, TXT UTF-8/Latin-1) para impedir evasiones por extensión de archivo adulterada.
+- **Mitigación de Zip-Slip y Path Traversal**: Extracción en memoria mediante streams controlados sin interactuar con el sistema de archivos del servidor.
+- **Mitigación de Bombas de Descompresión (Zip Bomb)**: Límites forzados de ratio de compresión (máx 100:1) y tamaño máximo descomprimido (25 MB).
+- **Escaneo de Prompt Injection**: Detección activa de directivas adversarias (`<system>`, `ignore previous instructions`, etc.) en el texto de contratos o cartas documento.
+
+### Navegación Web Segura para Fact-Checking (`web_reader.py`)
+- **Protección Anti-SSRF (Server-Side Request Forgery)**: Resolución previa de DNS con bloqueo estricto de direcciones privadas (RFC 1918), bucle local (`127.0.0.1`, `localhost`), enlaces locales (`169.254.x.x`) y servicios de metadatos de proveedores cloud (`169.254.169.254`).
+- Timeout no bloqueante de 4.0 segundos y límites de descarga.
 
 ---
 
@@ -187,6 +208,16 @@ REDIS_PORT=6379
    uvicorn app.main:asgi_app --host 0.0.0.0 --port 8000 --reload
    ```
    Swagger UI interactivo disponible en: `http://localhost:8000/docs`
+
+### 📡 Endpoints Principales de la API
+
+| Método | Endpoint | Descripción | Formato de Respuesta |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/legal/chat` | Consulta jurídica doctrinal o normativa con dictamen y citas | JSON (`LegalChatResponse`) |
+| `POST` | `/api/v1/legal/chat/stream` | Transmisión en tiempo real token a token con metadatos finales | `text/event-stream` (SSE) |
+| `POST` | `/api/v1/legal/analyze` | Auditoría de cláusulas en contratos, convenios o cartas documento | Multipart / JSON (`LegalChatResponse`) |
+| `GET` | `/api/v1/legal/diff` | Comparador histórico de redacción anterior vs vigente | JSON (`DiffResponse`) |
+| `POST` | `/api/v1/legal/sync` | Sincronización incremental Git con InfoLEG y cálculo de hashes | JSON (Admin Scope) |
 
 ---
 
