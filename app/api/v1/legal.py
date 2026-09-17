@@ -151,6 +151,7 @@ async def legal_chat_endpoint(
         citations=final_state.get("citations", []),
         confidence=final_state.get("confidence", ConfidenceLevel.MEDIUM),
         validation=val_res,
+        diff_data=final_state.get("diff_data"),
         processing_time_seconds=round(duration, 3),
     )
 
@@ -266,6 +267,7 @@ async def legal_chat_stream_endpoint(
             "citations": citations_data,
             "confidence": final_state.get("confidence", ConfidenceLevel.MEDIUM),
             "validation": val_dict,
+            "diff_data": final_state.get("diff_data"),
             "processing_time_seconds": round(duration, 3),
         }
         yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"

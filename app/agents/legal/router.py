@@ -19,16 +19,24 @@ class RouterDecision(BaseModel):
     intent: QueryIntent = Field(description="Intención clasificada de la consulta del usuario")
     law_identifier_hint: str | None = Field(default=None, description="Norma mencionada explícitamente (ej: 'LEY-26994')")
     article_hint: str | None = Field(default=None, description="Artículo mencionado (ej: '1198')")
+    wants_explanation: bool = Field(
+        default=False,
+        description="True si el usuario pide explícita o implícitamente que le expliquen, aclaren o traduzcan la reforma a lenguaje sencillo (ej: 'no entendí', 'explicame', 'qué significa', 'en criollo', 'cómo me afecta', 'no me quedó claro'). False si solo pide el diff/comparativa o ver qué cambió textualmente.",
+    )
     reasoning: str = Field(description="Explicación concisa de la decisión de ruteo")
 
 
 ROUTER_PROMPT = """Eres el clasificador de intenciones del Agente Legal Argentino.
 Tu objetivo es determinar qué tipo de tarea jurídica solicita el usuario:
 - 'legal_consultation': Pregunta sustantiva, doctrinaria, interpretativa o consulta sobre leyes argentinas y su régimen actual (ej: "¿Cómo quedaron regulados los alquileres tras el DNU 70/2023?", "¿Qué depósitos o plazos rigen?", "¿Es válido este plazo de preaviso?"). Toda pregunta que indague cómo se regula una situación o materia jurídica, INCLUSO si menciona un DNU o reforma histórica ("tras el DNU 70/2023", "a partir de la Ley de Bases"), es 'legal_consultation' porque requiere aplicar el derecho positivo de fondo (ej CCyC, LCT).
-- 'version_diff': ÚNICAMENTE cuando el usuario pide de forma EXPLÍCITA una comparativa textual de redacciones, un diff de reformas o contrastar la redacción previa vs la actual de un artículo o ley (ej: "¿Qué modificó la reforma en LEY-24013 artículo 153?", "mostrame el diff del artículo 92 ter de la LCT", "redacción anterior vs vigente"). NO uses version_diff para preguntas generales sobre cómo quedó regulado un contrato o régimen.
+- 'version_diff': Cuando el usuario pide una comparativa textual de redacciones, un diff de reformas, contrastar la redacción previa vs vigente de un artículo o ley (ej: "¿Qué modificó la reforma en LEY-24013 artículo 153?", "mostrame el diff del artículo 92 ter de la LCT", "redacción anterior vs vigente"), O cuando realiza una repregunta de incomprensión sobre un diff previo en la conversación (ej: "no entendí", "qué significa eso?").
 - 'document_analysis': El usuario proporciona un texto de contrato, convenio, carta documento o pide analizar cláusulas.
 - 'url_fact_check': El usuario incluye un enlace o link web (noticia, publicación) para contrastar su veracidad con la ley.
 - 'general_inquiry': Preguntas generales, saludos o consultas no normativas.
+
+Reglas para el campo 'wants_explanation' en 'version_diff':
+- wants_explanation = False: El usuario solo pide el diff, la comparativa o ver qué cambió textualmente sin pedir pedagogía (ej: "¿Qué modificó la reforma en LEY-26994 artículo 1222?", "diff del art 1198", "comparar versiones del artículo 1221").
+- wants_explanation = True: El usuario pide explícita o implícitamente una explicación ciudadana, manifiesta incomprensión o pregunta por el impacto práctico (ej: "no entendí", "no entendi nomás", "qué significa en la práctica", "explicámelo en criollo", "no me quedó claro", "¿en qué me afecta?"). Si es una repregunta de seguimiento tras recibir un diff previo, mantén intent='version_diff', arrastra la norma/artículo previo y marca wants_explanation=True.
 
 Identificadores de normas canónicas en el repositorio:
 - Constitución Nacional de la República Argentina -> LEY-24430
@@ -43,6 +51,7 @@ Identificadores de normas canónicas en el repositorio:
 - Ley de Empleo -> LEY-24013
 - Protección de Datos Personales -> LEY-25326
 """
+
 
 
 async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[str, Any]:
@@ -106,6 +115,7 @@ async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[st
             diff_params["law_identifier"] = decision.law_identifier_hint
         if decision.article_hint:
             diff_params["article_number"] = decision.article_hint
+        diff_params["wants_explanation"] = decision.wants_explanation
 
         return {
             "intent": decision.intent,

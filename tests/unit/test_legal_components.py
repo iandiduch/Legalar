@@ -167,3 +167,72 @@ async def test_local_diff_engine_performance_fast_path(repo_path: str):
     assert res_art.diff_source == "git_local"
     assert res_art.article_number == "153"
 
+
+def test_diff_parser_and_block_builder():
+    """Verifica que el parser de diff transforme un unified diff al formato de MessageDiffBlock."""
+    from app.schemas.legal.diff import ArticleDiff, DiffResponse
+    from app.services.legal.diff_parser import build_diff_block_data, parse_unified_diff_to_lines
+
+    sample_diff = """@@ -1,4 +1,4 @@
+ ARTÍCULO 1198.- Plazo de la locación.
+- El plazo mínimo legal es de tres (3) años.
++ El plazo de la locación puede ser convenido libremente por las partes.
+  Disposición supletoria."""
+
+    diff_lines, adds, dels = parse_unified_diff_to_lines(sample_diff)
+    assert adds == 1
+    assert dels == 1
+    assert any(l["type"] == "delete" and "tres (3) años" in l["text"] for l in diff_lines)
+    assert any(l["type"] == "add" and "libremente" in l["text"] for l in diff_lines)
+
+    art_diff = ArticleDiff(
+        law_identifier="LEY-26994",
+        article_number="1198",
+        text_a="Plazo 3 años",
+        text_b="Plazo libre",
+        unified_diff=sample_diff,
+        has_changes=True,
+    )
+    diff_resp = DiffResponse(
+        law_identifier="LEY-26994",
+        law_title="Código Civil y Comercial de la Nación",
+        article_number="1198",
+        diff_source="git_local",
+        diff_text=sample_diff,
+        article_diffs=[art_diff],
+    )
+
+    block = build_diff_block_data(diff_resp, citizen_explanation="Ahora rige plazo libre.")
+    assert block["lawIdentifier"] == "LEY-26994"
+    assert block["articleNumber"] == "1198"
+    assert block["summary"]["modificationsCount"] == 1
+    assert block["summary"]["deletionsCount"] == 1
+    assert block["summary"]["citizenExplanation"] == "Ahora rige plazo libre."
+    assert len(block["diffLines"]) > 0
+
+
+def test_router_decision_wants_explanation():
+    """Verifica que RouterDecision incluya el flag wants_explanation determinado por el LLM."""
+    from app.agents.legal.router import RouterDecision
+    from app.domain.models import QueryIntent
+
+    # Caso de diff puro
+    decision_pure = RouterDecision(
+        intent=QueryIntent.VERSION_DIFF,
+        law_identifier_hint="LEY-26994",
+        article_hint="1222",
+        wants_explanation=False,
+        reasoning="Usuario solo pide ver el diff textual",
+    )
+    assert decision_pure.wants_explanation is False
+
+    # Caso donde el usuario indica incomprensión o pide explicación implícita
+    decision_exp = RouterDecision(
+        intent=QueryIntent.VERSION_DIFF,
+        law_identifier_hint="LEY-26994",
+        article_hint="1198",
+        wants_explanation=True,
+        reasoning="Usuario indicó que no entendió y pide explicación ciudadana",
+    )
+    assert decision_exp.wants_explanation is True
+

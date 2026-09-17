@@ -31,4 +31,5 @@ class LegalChatResponse(BaseModel):
     citations: list[LegalCitation] = Field(default_factory=list, description="Artículos y normas de sustento")
     confidence: ConfidenceLevel
     validation: LegalValidationSummary
+    diff_data: dict[str, Any] | None = Field(default=None, description="Estructura para visualizador visual de diff (MessageDiffBlock)")
     processing_time_seconds: float = 0.0

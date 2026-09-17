@@ -9,6 +9,7 @@ y fallback transparente a `LocalGitDiffEngine`.
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -82,8 +83,8 @@ class LegalizeApiClient:
             self._sdk_client = AsyncLegalize(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                timeout=20.0,
-                max_retries=2,
+                timeout=3.0,
+                max_retries=0,
             )
         return self._sdk_client
 
@@ -177,7 +178,20 @@ class LegalizeApiClient:
         4. Si se solicita un artículo y la API sugiere alternativas ('closest'), reintenta automáticamente.
         5. Procesa normas extensas con 'diff_omitted' presentando los artículos modificados.
         """
-        # 1. Fallback temprano si no hay cuota o API key adecuada
+        # 1. Preferencia local: si la norma está en el repositorio Git clonado, resolver localmente (< 0.3s)
+        clean_id = law_identifier.replace("/", "-").strip()
+        disk_path = os.path.join(self._local_engine.repo_path, f"ar/{clean_id}.md")
+        if os.path.exists(disk_path):
+            logger.info("Resolviendo diff para %s vía LocalGitDiffEngine local (< 0.3s)", law_identifier)
+            return await asyncio.to_thread(
+                self._local_engine.compute_diff,
+                law_identifier=law_identifier,
+                date_a=date_a,
+                date_b=date_b,
+                article_number=article,
+            )
+
+        # 2. Fallback si no hay cuota o API key adecuada
         if not self.is_quota_available or not self.has_valid_api_key:
             logger.info("Usando LocalGitDiffEngine para %s (Cuota agotada o API key ausente)", law_identifier)
             return await asyncio.to_thread(

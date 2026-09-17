@@ -1,33 +1,52 @@
 import asyncio
 import logging
+import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from app.agents.legal.state import LegalAgentState
-from app.domain.models import AgentRole, ConfidenceLevel
+from app.domain.models import ConfidenceLevel
+from app.schemas.legal.diff import DiffResponse
+from app.services.legal.diff_parser import build_diff_block_data
 from app.services.legal.legalize_api_client import LegalizeApiClient
 
 logger = logging.getLogger(__name__)
 
-DIFF_ANALYSIS_PROMPT = """Eres el Especialista en Historia y Reformas Legislativas del Derecho Argentino.
-Tu función es analizar el diff textual entre dos versiones de una ley o artículo y explicar con claridad:
-1. Qué texto fue suprimido y qué texto fue incorporado.
-2. Cuál es el impacto práctico y jurídico de la reforma para los ciudadanos y abogados.
-3. Qué norma introdujo la modificación (ej: DNU 70/2023, Ley 27.551, etc.).
+DIFF_EXPLANATION_PROMPT = """Eres un jurista y docente de derecho argentino.
+Tu función es explicar de manera breve, clara y en lenguaje ciudadano qué cambió en la práctica jurídica a partir de las siguientes líneas modificadas de un artículo normativo.
 
-REGLAS ESTRICTAS DE FORMATO Y ESTILO:
-- Responde de forma directa, analítica y técnica en formato Markdown estructurado con subtítulos o viñetas.
-- PROHIBIDO usar saludos de carta o correo (NO uses "Estimado/a colega", "Hola", "Buenos días", etc.). Ve directamente a la información.
-- PROHIBIDO usar firmas, despedidas o cierres epistolares (NO uses "Atentamente", "Quedo a su disposición", "Especialista en...", etc.). No finjas ser una persona física firmando una carta.
-- Sé conciso y profesional (máximo 400 palabras).
-- NUNCA reproduzcas el diff completo ni repitas notas al pie o encabezados de forma cíclica. Sintetiza los cambios normativos y su impacto real.
+REGLAS ESTRICTAS:
+1. Máximo 2 párrafos concisos (menos de 150 palabras).
+2. Explica qué decía antes (líneas '-') y qué rige ahora (líneas '+').
+3. NO uses saludos, ni despedidas, ni cartas. Ve directo a la explicación fáctica.
+4. Basa tu explicación ÚNICAMENTE en las líneas provistas.
 """
 
 
+def _extract_atomic_diff_chunk(unified_diff: str, max_lines: int = 40) -> str:
+    """Aísla exclusivamente las líneas modificadas (+ y -) con su contexto inmediato.
+
+    Evita enviar volcados masivos o normas completas al LLM (menos de 300 tokens).
+    """
+
+    lines = unified_diff.splitlines()
+    filtered = []
+    chunk_lines = 0
+    for line in lines:
+        if line.startswith("---") or line.startswith("+++"):
+            continue
+        filtered.append(line)
+        chunk_lines += 1
+        if chunk_lines >= max_lines:
+            filtered.append("... [diff truncado a líneas principales de la modificación]")
+            break
+    return "\n".join(filtered)
+
+
 async def diff_node(state: LegalAgentState, config: RunnableConfig) -> dict[str, Any]:
-    """Obtiene el diff normativo (vía API o Git local) y genera la explicación jurídica."""
+    """Obtiene el diff normativo (vía API o Git local) y construye el bloque visual GitHub."""
     configurable = config.get("configurable", {})
     llm = configurable.get("llm_client")
     api_client: LegalizeApiClient | None = configurable.get("legalize_api_client")
@@ -38,7 +57,7 @@ async def diff_node(state: LegalAgentState, config: RunnableConfig) -> dict[str,
     date_a = params.get("date_a")
     date_b = params.get("date_b")
 
-    diff_response = None
+    diff_response: DiffResponse | None = None
     if api_client:
         try:
             diff_response = await api_client.get_diff(
@@ -48,53 +67,99 @@ async def diff_node(state: LegalAgentState, config: RunnableConfig) -> dict[str,
                 article=art_num,
             )
         except Exception as exc:
-            logger.error("Error al obtener diff: %s", exc)
+            logger.error("Error al obtener diff para %s Art. %s: %s", law_id, art_num, exc)
 
-    source_info = f"Fuente del diff: {diff_response.diff_source if diff_response else 'Desconocida'}"
-    diff_content = diff_response.diff_text if diff_response else "No se pudo recuperar el diff de la norma."
+    if not diff_response:
+        diff_response = DiffResponse(
+            law_identifier=law_id,
+            law_title=law_id,
+            article_number=art_num,
+            diff_source="git_local",
+            diff_text="No se pudo recuperar el diff de la norma en el repositorio.",
+            analysis="No fue posible recuperar las versiones normativas.",
+            article_diffs=[],
+        )
 
-    # ATAJO ULTRA-RÁPIDO: Si el motor de diff detectó que no hay cambios textuales, responder al instante sin llamar al LLM
+    # Evaluar si hubo modificaciones textuales reales
     has_modifications = False
-    if diff_response:
+    unified_diff_text = diff_response.diff_text or ""
+    if diff_response.article_diffs:
+        has_modifications = any(d.has_changes for d in diff_response.article_diffs)
         if diff_response.article_diffs:
-            has_modifications = any(d.has_changes for d in diff_response.article_diffs)
-        elif diff_response.diff_text and "Sin diferencias" not in diff_response.diff_text and "idéntico" not in diff_response.diff_text.lower():
-            has_modifications = True
+            unified_diff_text = diff_response.article_diffs[0].unified_diff
+    elif unified_diff_text and "sin diferencias" not in unified_diff_text.lower() and "sin modificaciones" not in unified_diff_text.lower():
+        has_modifications = True
 
+    # REGLA 1: Si no hubo modificaciones, retorno instantáneo (< 0.2s) sin LLM
     if not has_modifications:
-        target_ref = f"el artículo {art_num} de la norma {law_id}" if art_num else f"la norma {law_id}"
+        diff_data = build_diff_block_data(
+            diff_response=diff_response,
+            citizen_explanation=f"El artículo {art_num or 'consultado'} de {law_id} no registra modificaciones textuales entre las versiones consultadas (redacción idéntica).",
+        )
         explanation = (
-            f"### Análisis de Modificaciones: {law_id}" + (f" (Art. {art_num})" if art_num else "") + "\n\n"
-            f"- **Resultado del cotejo**: No se registran modificaciones textuales en {target_ref} entre las versiones consultadas en el repositorio.\n"
-            f"- **Estado de redacción**: El texto normativo oficial se mantiene idéntico en su redacción registrada.\n"
-            f"- **Fuente de verificación**: {source_info}."
+            f"### Comparativa Normativa Oficial: {law_id}" + (f" Art. {art_num}" if art_num else "") + "\n\n"
+            f"- **Resultado del cotejo**: No se registran modificaciones textuales entre las versiones analizadas.\n"
+            f"- **Estado de redacción**: El texto oficial se mantiene idéntico en el repositorio de control de versiones."
         )
         return {
             "diff_result": diff_response,
+            "diff_data": diff_data,
             "draft_answer": explanation,
+            "final_answer": explanation,
             "confidence": ConfidenceLevel.HIGH,
             "messages": [AIMessage(content=explanation, name="diff_node")],
         }
 
-    # Si hubo modificaciones, solicitar análisis sintetizado al LLM con timeout de 20s
-    if len(diff_content) > 12000:
-        diff_content = diff_content[:12000] + "\n\n... [diff truncado por extensión para análisis conciso]"
+    # REGLA 2: Si el Router determinó que el usuario solo pide el diff técnico,
+    # emitir el bloque visual de inmediato sin invocar al LLM (< 0.4s)
+    query_text = state.get("query", "")
+    wants_explanation = bool(params.get("wants_explanation", False))
 
-    messages = [
-        SystemMessage(content=DIFF_ANALYSIS_PROMPT),
-        SystemMessage(content=f"CONSULTA DEL USUARIO: {state['query']}\n\nDIFF ({source_info}):\n{diff_content}"),
-    ]
+    citizen_explanation = None
+    if wants_explanation and llm:
+        # REGLA 3: Si el usuario pidió explicación explícita, enviar ÚNICAMENTE las líneas
+        # atómicas modificadas (~200 tokens) con timeout acotado (8s).
+        atomic_diff = _extract_atomic_diff_chunk(unified_diff_text)
+        prompt_content = (
+            f"CONSULTA DEL USUARIO: {query_text}\n\n"
+            f"NORMA: {law_id} (Artículo {art_num or 'general'})\n"
+            f"LÍNEAS MODIFICADAS:\n```diff\n{atomic_diff}\n```"
+        )
+        try:
+            res = await asyncio.wait_for(
+                llm.ainvoke([
+                    SystemMessage(content=DIFF_EXPLANATION_PROMPT),
+                    SystemMessage(content=prompt_content),
+                ]),
+                timeout=8.0,
+            )
+            citizen_explanation = str(res.content).strip()
+        except Exception as exc:
+            logger.warning("No se pudo obtener explicación LLM para diff: %s", exc)
+            citizen_explanation = "Se detectaron reformas en la redacción del artículo. Revise la comparativa visual línea por línea abajo."
 
-    try:
-        res = await asyncio.wait_for(llm.ainvoke(messages), timeout=20.0)
-        explanation = str(res.content)
-    except Exception as exc:
-        logger.warning("Fallo al generar explicación de diff con LLM: %s", exc)
-        explanation = f"### Comparativa Normativa ({source_info})\n\n```diff\n{diff_content}\n```"
+    diff_data = build_diff_block_data(
+        diff_response=diff_response,
+        citizen_explanation=citizen_explanation,
+    )
+
+    summary_counts = diff_data.get("summary", {})
+    adds = summary_counts.get("modificationsCount", 0)
+    dels = summary_counts.get("deletionsCount", 0)
+
+    final_text = citizen_explanation or (
+        f"### Comparativa Normativa: {law_id} Art. {art_num or ''}\n\n"
+        f"- **Líneas incorporadas (+)**: {adds}\n"
+        f"- **Líneas suprimidas (-)**: {dels}\n"
+        f"- **Fuente**: {diff_response.diff_source} (control de versiones oficial)"
+    )
 
     return {
         "diff_result": diff_response,
-        "draft_answer": explanation,
+        "diff_data": diff_data,
+        "draft_answer": final_text,
+        "final_answer": final_text,
         "confidence": ConfidenceLevel.HIGH,
-        "messages": [AIMessage(content=explanation, name="diff_node")],
+        "messages": [AIMessage(content=final_text, name="diff_node")],
     }
+

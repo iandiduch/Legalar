@@ -51,12 +51,13 @@ def build_legal_graph(checkpointer: BaseCheckpointSaver | None = None) -> Any:
         },
     )
 
-    # Todos los agentes ejecutores pasan por el validador jurídico
+    # Los agentes de consulta jurídica y auditoría pasan por el validador
     workflow.add_edge("legal_agent", "validator")
     workflow.add_edge("document_analyzer", "validator")
-    workflow.add_edge("diff_node", "validator")
+    # El diff normativo es fáctico y determinista (Git nativo), finaliza directamente sin latencia
+    workflow.add_edge("diff_node", END)
 
-    # El validador finaliza el ciclo
+    # El validador finaliza el ciclo para consultas y análisis
     workflow.add_edge("validator", END)
 
     return workflow.compile(checkpointer=checkpointer)

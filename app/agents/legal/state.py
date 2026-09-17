@@ -26,6 +26,7 @@ class LegalAgentState(TypedDict):
     document_type: str | None
     diff_request_params: dict[str, Any] | None
     diff_result: DiffResponse | None
+    diff_data: dict[str, Any] | None
     final_answer: str | None
     confidence: ConfidenceLevel
     iteration: int
