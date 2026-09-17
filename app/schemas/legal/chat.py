@@ -20,6 +20,10 @@ class LegalChatRequest(BaseModel):
     thread_id: str | None = Field(default=None, description="Identificador de sesión para conversación continua")
     include_historical: bool = Field(default=False, description="Si se deben incluir normas derogadas/históricas")
     law_filter: list[str] | None = Field(default=None, description="Filtro opcional por identificadores (ej: ['LEY-26994'])")
+    history: list[dict[str, str]] | None = Field(
+        default=None,
+        description="Historial reciente de mensajes de la conversación [{'role': 'user'|'assistant', 'content': '...'}]",
+    )
 
 
 class LegalChatResponse(BaseModel):

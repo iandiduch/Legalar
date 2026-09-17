@@ -21,30 +21,40 @@ class RouterDecision(BaseModel):
     article_hint: str | None = Field(default=None, description="Artículo mencionado (ej: '1198')")
     wants_explanation: bool = Field(
         default=False,
-        description="True si el usuario pide explícita o implícitamente que le expliquen, aclaren o traduzcan la reforma a lenguaje sencillo (ej: 'no entendí', 'explicame', 'qué significa', 'en criollo', 'cómo me afecta', 'no me quedó claro'). False si solo pide el diff/comparativa o ver qué cambió textualmente.",
+        description="Aplica ÚNICAMENTE si intent='version_diff': True si el usuario solicita explicación ciudadana de la reforma. False si no pide pedagogía o si intent no es version_diff.",
     )
-    reasoning: str = Field(description="Explicación concisa de la decisión de ruteo")
+    reasoning: str = Field(description="Explicación concisa de la decisión de ruteo considerando el historial conversacional")
 
 
 ROUTER_PROMPT = """Eres el clasificador de intenciones del Agente Legal Argentino.
-Tu objetivo es determinar qué tipo de tarea jurídica solicita el usuario:
-- 'legal_consultation': Pregunta sustantiva, doctrinaria, interpretativa o consulta sobre leyes argentinas y su régimen actual (ej: "¿Cómo quedaron regulados los alquileres tras el DNU 70/2023?", "¿Qué depósitos o plazos rigen?", "¿Es válido este plazo de preaviso?"). Toda pregunta que indague cómo se regula una situación o materia jurídica, INCLUSO si menciona un DNU o reforma histórica ("tras el DNU 70/2023", "a partir de la Ley de Bases"), es 'legal_consultation' porque requiere aplicar el derecho positivo de fondo (ej CCyC, LCT).
-- 'version_diff': Cuando el usuario pide una comparativa textual de redacciones, un diff de reformas, contrastar la redacción previa vs vigente de un artículo o ley (ej: "¿Qué modificó la reforma en LEY-24013 artículo 153?", "mostrame el diff del artículo 92 ter de la LCT", "redacción anterior vs vigente"), O cuando realiza una repregunta de incomprensión sobre un diff previo en la conversación (ej: "no entendí", "qué significa eso?").
-- 'document_analysis': El usuario proporciona un texto de contrato, convenio, carta documento o pide analizar cláusulas.
-- 'url_fact_check': El usuario incluye un enlace o link web (noticia, publicación) para contrastar su veracidad con la ley.
-- 'general_inquiry': Preguntas generales, saludos o consultas no normativas.
+Tu objetivo es determinar con rigor qué tipo de tarea solicita el usuario según la consulta actual y el historial conversacional previo:
 
-Reglas para el campo 'wants_explanation' en 'version_diff':
-- wants_explanation = False: El usuario solo pide el diff, la comparativa o ver qué cambió textualmente sin pedir pedagogía (ej: "¿Qué modificó la reforma en LEY-26994 artículo 1222?", "diff del art 1198", "comparar versiones del artículo 1221").
-- wants_explanation = True: El usuario pide explícita o implícitamente una explicación ciudadana, manifiesta incomprensión o pregunta por el impacto práctico (ej: "no entendí", "no entendi nomás", "qué significa en la práctica", "explicámelo en criollo", "no me quedó claro", "¿en qué me afecta?"). Si es una repregunta de seguimiento tras recibir un diff previo, mantén intent='version_diff', arrastra la norma/artículo previo y marca wants_explanation=True.
+1. 'legal_consultation':
+- Pregunta jurídica sustantiva, doctrinaria, interpretativa o consulta sobre el régimen legal argentino vigente (penal, procesal, laboral, civil, comercial, administrativo, etc.).
+- REGLA DE CONTINUIDAD CONVERSACIONAL Y REPREGUNTAS: Si el usuario realiza una repregunta de incomprensión, aclaración o simplificación (ej: "no entendí", "no entendi nomas", "podes explicarlo mejor", "explicamelo en criollo", "¿por qué?", "¿cómo es eso?") sobre una respuesta jurídica previa del asistente, la intención DEBE SER 'legal_consultation'. El agente legal tomará su respuesta previa y la explicará con mayor claridad y pedagogía ciudadana.
+
+2. 'version_diff':
+- ÚNICAMENTE cuando el usuario solicita explícitamente contrastar redacciones textuales, ver un diff de reformas o comparar la redacción previa vs vigente de un artículo o ley (ej: "¿Qué modificó la reforma en LEY-24013 artículo 153?", "mostrame el diff del artículo 92 ter de la LCT", "redacción anterior vs vigente").
+- O cuando realiza una repregunta de incomprensión ("no entendí", "¿qué cambió?") ÚNICAMENTE SI el mensaje inmediatamente anterior del asistente fue una tabla o bloque de diff normativo.
+- Si la consulta NO menciona reformas ni comparativas textuales y el mensaje anterior NO fue un diff, NUNCA clasifiques como 'version_diff'.
+
+3. 'document_analysis': El usuario proporciona un texto de contrato, convenio, carta documento o pide auditar cláusulas.
+4. 'url_fact_check': El usuario incluye un enlace o link web (noticia, publicación) para contrastar su veracidad con la ley.
+5. 'general_inquiry': Saludos, preguntas generales no jurídicas ni normativas.
+
+Reglas para 'wants_explanation' (Aplica solo cuando intent='version_diff'):
+- wants_explanation = False: El usuario solo pide el diff/comparativa sin pedir pedagogía (ej: "diff del art 1198", "qué cambió en LEY-26994 art 1222").
+- wants_explanation = True: El usuario pide explícita o implícitamente que además le expliquen la reforma en lenguaje sencillo (ej: "explicame qué cambió", "qué significa en la práctica").
+- Si intent != 'version_diff', wants_explanation debe ser False obligatoriamente.
 
 Identificadores de normas canónicas en el repositorio:
 - Constitución Nacional de la República Argentina -> LEY-24430
 - Código Civil y Comercial de la Nación (CCyC) -> LEY-26994
 - Ley de Contrato de Trabajo (LCT / T.O. 1976 vigente con Art. 245) -> DEC-390-1976 (o LEY-20744)
+- Código Procesal Penal de la Nación -> LEY-23984
+- Código Penal de la Nación -> LEY-11179
 - Ley General de Sociedades -> LEY-19550
 - Ley de Defensa del Consumidor -> LEY-24240
-- Código Penal de la Nación -> LEY-11179
 - DNU 70/2023 (Bases para la Reconstrucción) -> DNU-70-2023
 - Ley de Bases -> LEY-27742
 - Ley de Riesgos del Trabajo (ART) -> LEY-24557

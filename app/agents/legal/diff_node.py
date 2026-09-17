@@ -52,10 +52,25 @@ async def diff_node(state: LegalAgentState, config: RunnableConfig) -> dict[str,
     api_client: LegalizeApiClient | None = configurable.get("legalize_api_client")
 
     params = state.get("diff_request_params") or {}
-    law_id = params.get("law_identifier", "LEY-26994")
+    law_id = params.get("law_identifier")
     art_num = params.get("article_number")
     date_a = params.get("date_a")
     date_b = params.get("date_b")
+
+    if not law_id:
+        no_law_msg = (
+            "Para poder cotejar reformas normativas o mostrarte un diff de redacciones, "
+            "por favor indicá qué ley o código te interesa comparar (por ejemplo: LEY-24013, LCT o Ley de Alquileres) "
+            "y, si lo deseas, el número de artículo específico."
+        )
+        return {
+            "intent": state.get("intent"),
+            "final_answer": no_law_msg,
+            "draft_answer": no_law_msg,
+            "diff_data": None,
+            "confidence": ConfidenceLevel.MEDIUM,
+            "messages": [AIMessage(content=no_law_msg, name="diff_node")],
+        }
 
     diff_response: DiffResponse | None = None
     if api_client:

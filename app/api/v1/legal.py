@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.legal.graph import build_legal_graph
@@ -57,6 +57,7 @@ from app.api.dependencies import (
 )
 async def legal_chat_endpoint(
     request: LegalChatRequest,
+    http_request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     retriever: Annotated[HybridLegalRetriever, Depends(get_legal_retriever)],
     diff_client: Annotated[LegalizeApiClient, Depends(get_legalize_api_client)],
@@ -67,10 +68,23 @@ async def legal_chat_endpoint(
 
     llm = build_chat_model(settings)
 
-    app_graph = build_legal_graph(checkpointer=None)
+    app_graph = getattr(http_request.app.state, "compiled_graph", None) or build_legal_graph(checkpointer=None)
+
+    initial_messages = []
+    if request.history:
+        for item in request.history[-6:]:
+            role = item.get("role", "")
+            content = item.get("content", "")
+            if not content:
+                continue
+            if role == "user":
+                initial_messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                initial_messages.append(AIMessage(content=content))
+    initial_messages.append(HumanMessage(content=request.query))
 
     initial_state: LegalAgentState = {
-        "messages": [HumanMessage(content=request.query)],
+        "messages": initial_messages,
         "thread_id": thread_id,
         "query": request.query,
         "intent": QueryIntent.LEGAL_CONSULTATION,
@@ -88,11 +102,13 @@ async def legal_chat_endpoint(
 
     config = {
         "configurable": {
+            "thread_id": thread_id,
             "llm_client": llm,
             "legal_retriever": retriever,
             "legalize_api_client": diff_client,
             "settings": settings,
-        }
+        },
+        "recursion_limit": settings.GRAPH_RECURSION_LIMIT,
     }
 
     try:
@@ -156,10 +172,23 @@ async def legal_chat_stream_endpoint(
         yield f"event: status\ndata: {json.dumps({'stage': 'routing', 'message': 'Analizando consulta e identificando materia jurídica...'})}\n\n"
 
         llm = build_chat_model(settings)
-        app_graph = build_legal_graph(checkpointer=None)
+        app_graph = getattr(http_request.app.state, "compiled_graph", None) or build_legal_graph(checkpointer=None)
+
+        initial_messages = []
+        if request.history:
+            for item in request.history[-6:]:
+                role = item.get("role", "")
+                content = item.get("content", "")
+                if not content:
+                    continue
+                if role == "user":
+                    initial_messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    initial_messages.append(AIMessage(content=content))
+        initial_messages.append(HumanMessage(content=request.query))
 
         initial_state: LegalAgentState = {
-            "messages": [HumanMessage(content=request.query)],
+            "messages": initial_messages,
             "thread_id": thread_id,
             "query": request.query,
             "intent": QueryIntent.LEGAL_CONSULTATION,
@@ -177,11 +206,13 @@ async def legal_chat_stream_endpoint(
 
         config = {
             "configurable": {
+                "thread_id": thread_id,
                 "llm_client": llm,
                 "legal_retriever": retriever,
                 "legalize_api_client": diff_client,
                 "settings": settings,
-            }
+            },
+            "recursion_limit": settings.GRAPH_RECURSION_LIMIT,
         }
 
         event_queue: asyncio.Queue = asyncio.Queue()
@@ -330,6 +361,7 @@ async def legal_chat_stream_endpoint(
     description="Analiza contratos, convenios o cartas documento (PDF/DOCX/TXT) y detecta cláusulas abusivas o nulas según la ley argentina.",
 )
 async def analyze_document_endpoint(
+    http_request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     retriever: Annotated[HybridLegalRetriever, Depends(get_legal_retriever)],
     diff_client: Annotated[LegalizeApiClient, Depends(get_legalize_api_client)],
@@ -376,7 +408,7 @@ async def analyze_document_endpoint(
     start_time = time.time()
     llm = build_chat_model(settings)
 
-    app_graph = build_legal_graph(checkpointer=None)
+    app_graph = getattr(http_request.app.state, "compiled_graph", None) or build_legal_graph(checkpointer=None)
 
     initial_state: LegalAgentState = {
         "messages": [HumanMessage(content=req.query)],
@@ -397,11 +429,13 @@ async def analyze_document_endpoint(
 
     config = {
         "configurable": {
+            "thread_id": req.thread_id,
             "llm_client": llm,
             "legal_retriever": retriever,
             "legalize_api_client": diff_client,
             "settings": settings,
-        }
+        },
+        "recursion_limit": settings.GRAPH_RECURSION_LIMIT,
     }
 
     try:

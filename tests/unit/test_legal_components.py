@@ -236,3 +236,34 @@ def test_router_decision_wants_explanation():
     )
     assert decision_exp.wants_explanation is True
 
+    # Caso donde el usuario realiza una repregunta de incomprensión sobre una consulta jurídica
+    decision_consultation = RouterDecision(
+        intent=QueryIntent.LEGAL_CONSULTATION,
+        law_identifier_hint=None,
+        article_hint=None,
+        wants_explanation=False,
+        reasoning="Usuario repregunta sobre la explicación penal previa",
+    )
+    assert decision_consultation.intent == QueryIntent.LEGAL_CONSULTATION
+    assert decision_consultation.wants_explanation is False
+
+
+@pytest.mark.asyncio
+async def test_diff_node_clarifies_when_no_law_provided():
+    """Verifica que diff_node no invente LEY-26994 si la consulta no especificó ninguna ley."""
+    from app.agents.legal.diff_node import diff_node
+    from app.domain.models import QueryIntent
+
+    state = {
+        "messages": [],
+        "query": "podes explicarlo mejor no entendi",
+        "intent": QueryIntent.VERSION_DIFF,
+        "diff_request_params": None,
+    }
+    config = {"configurable": {"llm_client": None, "legalize_api_client": None}}
+
+    res = await diff_node(state, config)
+    assert res["diff_data"] is None
+    assert "LEY-26994" not in res["final_answer"]
+    assert "por favor indicá qué ley" in res["final_answer"].lower()
+
