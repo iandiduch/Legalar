@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -125,7 +125,15 @@ async def legal_chat_endpoint(
     }
 
     try:
-        final_state = await app_graph.ainvoke(initial_state, config=config)
+        final_state = await asyncio.wait_for(
+            app_graph.ainvoke(initial_state, config=config),
+            timeout=35.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="La consulta superó el tiempo máximo de procesamiento (35s). Por favor formule una pregunta más específica.",
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -154,6 +162,7 @@ async def legal_chat_endpoint(
 )
 async def legal_chat_stream_endpoint(
     request: LegalChatRequest,
+    http_request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     retriever: Annotated[HybridLegalRetriever, Depends(get_legal_retriever)],
     diff_client: Annotated[LegalizeApiClient, Depends(get_legalize_api_client)],
@@ -163,6 +172,14 @@ async def legal_chat_stream_endpoint(
     thread_id = request.thread_id or str(uuid.uuid4())
 
     async def event_generator():
+        # Comprobación de desconexión temprana antes de ejecutar operaciones
+        if await http_request.is_disconnected():
+            logger.info("Cliente desconectado antes de iniciar streaming (%s)", thread_id)
+            return
+
+        # Enviar comentario SSE ': ping' inmediato para que proxies (Cloudflare/Dokploy/Nginx) no corten la conexión
+        yield ": ping\n\n"
+
         llm = build_chat_model(settings)
         app_graph = build_legal_graph(checkpointer=None)
 
@@ -193,10 +210,21 @@ async def legal_chat_stream_endpoint(
         }
 
         try:
-            final_state = await app_graph.ainvoke(initial_state, config=config)
+            final_state = await asyncio.wait_for(
+                app_graph.ainvoke(initial_state, config=config),
+                timeout=35.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Timeout superado en ejecución del agente legal para thread %s", thread_id)
+            yield f"event: error\ndata: {json.dumps({'error': 'La consulta demoró más de lo esperado en resolverse. Por favor reintenta con una formulación más específica.'})}\n\n"
+            return
         except Exception as exc:
             logger.error("Error en ejecución del agente legal: %s", exc)
             yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
+            return
+
+        if await http_request.is_disconnected():
+            logger.info("Cliente desconectado tras finalización del grafo (%s)", thread_id)
             return
 
         final_answer = (
@@ -222,8 +250,11 @@ async def legal_chat_stream_endpoint(
         # 2. Transmitir tokens de la respuesta final validada
         tokens = re.findall(r"\S+|\s+", final_answer)
         for token in tokens:
+            if await http_request.is_disconnected():
+                logger.info("Cliente desconectado durante streaming de tokens (%s)", thread_id)
+                return
             yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
-            await asyncio.sleep(0.012)
+            await asyncio.sleep(0.008)
 
         # 3. Notificar finalización con metadatos completos y citas oficiales
         duration = time.time() - start_time

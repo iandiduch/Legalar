@@ -6,6 +6,7 @@ normalización de anclas de artículos con reintento ante sugerencias `closest`,
 y fallback transparente a `LocalGitDiffEngine`.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -147,23 +148,16 @@ class LegalizeApiClient:
                 return None, None, "equal_dates"
             return resolved_a, resolved_b, None
 
-        # Si posee exactamente 1 reforma, intentar obtener la fecha de publicación original como date_a
-        resolved_b = date_b.strip()[:10] if date_b else reforms[0].date
-        resolved_a = date_a.strip()[:10] if date_a else None
-
-        if not resolved_a:
-            try:
-                meta = await client.laws.meta(country=country, law_id=law_identifier)
-                if meta.publication_date and meta.publication_date < resolved_b:
-                    resolved_a = meta.publication_date
-            except Exception as exc:
-                logger.debug("No se pudo obtener meta para fecha inicial de %s: %s", law_identifier, exc)
-
-        if not resolved_a or resolved_a == resolved_b:
-            logger.info("No fue posible resolver fecha anterior para única reforma de %s.", law_identifier)
-            return None, None, "single_reform_without_base"
-
-        return resolved_a, resolved_b, None
+        # Si posee menos de 2 reformas en la API (ej: LEY-24013 con 1 sola reforma registrada),
+        # Legalize API no dispone de dos versiones históricas en su repositorio git.
+        # NUNCA usar publication_date (ej 1991-12-17) porque la API rechaza con HTTP 400 before_history
+        # fechas anteriores a 2006. Conmutar directamente al motor local.
+        logger.info(
+            "Norma %s tiene solo %d reforma registrada en Legalize API. Conmutando a LocalGitDiffEngine.",
+            law_identifier,
+            len(reforms),
+        )
+        return None, None, "insufficient_api_reforms"
 
     async def get_diff(
         self,
@@ -186,7 +180,8 @@ class LegalizeApiClient:
         # 1. Fallback temprano si no hay cuota o API key adecuada
         if not self.is_quota_available or not self.has_valid_api_key:
             logger.info("Usando LocalGitDiffEngine para %s (Cuota agotada o API key ausente)", law_identifier)
-            return self._local_engine.compute_diff(
+            return await asyncio.to_thread(
+                self._local_engine.compute_diff,
                 law_identifier=law_identifier,
                 date_a=date_a,
                 date_b=date_b,
@@ -195,14 +190,15 @@ class LegalizeApiClient:
 
         client = self._get_sdk_client()
         if client is None:
-            return self._local_engine.compute_diff(
+            return await asyncio.to_thread(
+                self._local_engine.compute_diff,
                 law_identifier=law_identifier,
                 date_a=date_a,
                 date_b=date_b,
                 article_number=article,
             )
 
-        # 2. Resolver fechas requeridas (date_a y date_b) para evitar HTTP 422
+        # 2. Resolver fechas requeridas (date_a y date_b) para evitar HTTP 422 y HTTP 400
         resolved_a, resolved_b, reason = await self._resolve_dates(
             client=client,
             law_identifier=law_identifier,
@@ -211,14 +207,15 @@ class LegalizeApiClient:
             date_b=date_b,
         )
 
-        # Si no hay dos fechas válidas, NUNCA llamar a /diff (evita el 422 en la API remota)
+        # Si no hay dos fechas válidas, NUNCA llamar a /diff (evita el 422/400 en la API remota)
         if not resolved_a or not resolved_b:
             logger.info(
                 "Conmutando a LocalGitDiffEngine para %s (Razón de fechas: %s)",
                 law_identifier,
                 reason,
             )
-            return self._local_engine.compute_diff(
+            return await asyncio.to_thread(
+                self._local_engine.compute_diff,
                 law_identifier=law_identifier,
                 date_a=date_a,
                 date_b=date_b,
@@ -253,7 +250,8 @@ class LegalizeApiClient:
                     self._calls_this_month += 1
                 except Exception as retry_err:
                     logger.warning("Fallo en reintento con ancla sugerida %s: %s", closest_anchor, retry_err)
-                    return self._local_engine.compute_diff(
+                    return await asyncio.to_thread(
+                        self._local_engine.compute_diff,
                         law_identifier=law_identifier,
                         date_a=resolved_a,
                         date_b=resolved_b,
@@ -261,7 +259,8 @@ class LegalizeApiClient:
                     )
             else:
                 logger.info("Artículo o norma no encontrado en Legalize API (%s). Conmutando a local.", err)
-                return self._local_engine.compute_diff(
+                return await asyncio.to_thread(
+                    self._local_engine.compute_diff,
                     law_identifier=law_identifier,
                     date_a=resolved_a,
                     date_b=resolved_b,
@@ -270,7 +269,8 @@ class LegalizeApiClient:
         except RateLimitError:
             logger.warning("Cuota mensual de Legalize API alcanzada (429). Conmutando a LocalGitDiffEngine.")
             self._calls_this_month = self.monthly_limit
-            return self._local_engine.compute_diff(
+            return await asyncio.to_thread(
+                self._local_engine.compute_diff,
                 law_identifier=law_identifier,
                 date_a=resolved_a,
                 date_b=resolved_b,
@@ -278,7 +278,8 @@ class LegalizeApiClient:
             )
         except (APIError, Exception) as exc:
             logger.warning("Error al consultar Legalize API (%s). Conmutando a LocalGitDiffEngine.", exc)
-            return self._local_engine.compute_diff(
+            return await asyncio.to_thread(
+                self._local_engine.compute_diff,
                 law_identifier=law_identifier,
                 date_a=resolved_a,
                 date_b=resolved_b,

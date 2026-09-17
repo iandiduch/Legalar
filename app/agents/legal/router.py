@@ -24,10 +24,10 @@ class RouterDecision(BaseModel):
 
 ROUTER_PROMPT = """Eres el clasificador de intenciones del Agente Legal Argentino.
 Tu objetivo es determinar qué tipo de tarea jurídica solicita el usuario:
-- 'legal_consultation': Pregunta doctrinaria, interpretativa o consulta sobre leyes argentinas vigentes.
+- 'legal_consultation': Pregunta sustantiva, doctrinaria, interpretativa o consulta sobre leyes argentinas y su régimen actual (ej: "¿Cómo quedaron regulados los alquileres tras el DNU 70/2023?", "¿Qué depósitos o plazos rigen?", "¿Es válido este plazo de preaviso?"). Toda pregunta que indague cómo se regula una situación o materia jurídica, INCLUSO si menciona un DNU o reforma histórica ("tras el DNU 70/2023", "a partir de la Ley de Bases"), es 'legal_consultation' porque requiere aplicar el derecho positivo de fondo (ej CCyC, LCT).
+- 'version_diff': ÚNICAMENTE cuando el usuario pide de forma EXPLÍCITA una comparativa textual de redacciones, un diff de reformas o contrastar la redacción previa vs la actual de un artículo o ley (ej: "¿Qué modificó la reforma en LEY-24013 artículo 153?", "mostrame el diff del artículo 92 ter de la LCT", "redacción anterior vs vigente"). NO uses version_diff para preguntas generales sobre cómo quedó regulado un contrato o régimen.
 - 'document_analysis': El usuario proporciona un texto de contrato, convenio, carta documento o pide analizar cláusulas.
 - 'url_fact_check': El usuario incluye un enlace o link web (noticia, publicación) para contrastar su veracidad con la ley.
-- 'version_diff': El usuario pregunta qué cambió en una ley, cómo era la redacción anterior, qué modificó una reforma (ej DNU 70/2023 o Ley 27.551) respecto de artículos previos.
 - 'general_inquiry': Preguntas generales, saludos o consultas no normativas.
 
 Identificadores de normas canónicas en el repositorio:

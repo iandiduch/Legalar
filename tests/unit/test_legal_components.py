@@ -142,3 +142,28 @@ async def test_legalize_api_client_zero_reforms_or_404(repo_path: str):
     res_ley = await client.get_diff(law_identifier="LEY-26994")
     assert res_ley.diff_source == "git_local"
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_local_diff_engine_performance_fast_path(repo_path: str):
+    """Verifica que el atajo de commits idénticos en normas extensas como DNU-70-2023 responda en menos de 1 segundo."""
+    import time
+    from app.services.legal.local_diff_engine import LocalGitDiffEngine
+
+    engine = LocalGitDiffEngine(repo_path=repo_path)
+    t0 = time.time()
+    res_dnu = engine.compute_diff(law_identifier="DNU-70-2023")
+    elapsed_dnu = time.time() - t0
+
+    assert elapsed_dnu < 1.0, f"Diff de DNU-70-2023 demoró {elapsed_dnu}s (debe ser < 1.0s)"
+    assert res_dnu.diff_source == "git_local"
+    assert "Sin diferencias textuales" in res_dnu.diff_text or "idéntico" in res_dnu.diff_text
+
+    t1 = time.time()
+    res_art = engine.compute_diff(law_identifier="LEY-24013", article_number="153")
+    elapsed_art = time.time() - t1
+
+    assert elapsed_art < 1.0, f"Diff de LEY-24013 Art 153 demoró {elapsed_art}s (debe ser < 1.0s)"
+    assert res_art.diff_source == "git_local"
+    assert res_art.article_number == "153"
+

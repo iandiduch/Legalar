@@ -37,6 +37,15 @@ class HybridLegalRetriever:
         self.embeddings = embeddings_client
         self.sessionmaker = sessionmaker
         self.namespace = settings.PINECONE_LEGAL_NAMESPACE
+        self._index: AsyncIndex | None = None
+
+    async def _get_index(self) -> AsyncIndex | None:
+        """Retorna la instancia de AsyncIndex cacheada para evitar llamadas repetidas a control plane."""
+        if not self.pinecone:
+            return None
+        if self._index is None:
+            self._index = await self.pinecone.index(name=self.settings.PINECONE_INDEX_NAME)
+        return self._index
 
     async def search(
         self,
@@ -129,7 +138,9 @@ class HybridLegalRetriever:
             return []
 
         try:
-            index: AsyncIndex = await self.pinecone.index(name=self.settings.PINECONE_INDEX_NAME)
+            index = await self._get_index()
+            if index is None:
+                return []
             [query_vector] = await embed_texts([query], self.embeddings)
 
             filter_dict: dict[str, Any] = {}
