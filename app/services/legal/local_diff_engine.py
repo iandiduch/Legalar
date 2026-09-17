@@ -26,8 +26,8 @@ class LocalGitDiffEngine:
         if not os.path.exists(os.path.join(self.repo_path, ".git")):
             logger.warning("El directorio %s no contiene un repositorio Git válido.", self.repo_path)
 
-    def _run_git(self, args: list[str]) -> str:
-        """Ejecuta un comando git en el repositorio local y retorna stdout."""
+    def _run_git(self, args: list[str], timeout: float = 4.0) -> str:
+        """Ejecuta un comando git en el repositorio local y retorna stdout con timeout estricto."""
         try:
             res = subprocess.run(
                 ["git", *args],
@@ -37,11 +37,18 @@ class LocalGitDiffEngine:
                 encoding="utf-8",
                 errors="replace",
                 check=True,
+                timeout=timeout,
             )
             return res.stdout.strip()
+        except subprocess.TimeoutExpired:
+            logger.warning("Timeout al ejecutar git %s en %s (%ss)", " ".join(args[:3]), self.repo_path, timeout)
+            return ""
         except subprocess.CalledProcessError as exc:
-            logger.error("Error ejecutando git %s: %s", " ".join(args), exc.stderr)
-            raise RuntimeError(f"Fallo de comando Git: {exc.stderr.strip()}") from exc
+            logger.error("Error ejecutando git %s: %s", " ".join(args[:3]), exc.stderr)
+            return ""
+        except Exception as exc:
+            logger.error("Excepción al ejecutar git %s: %s", " ".join(args[:3]), exc)
+            return ""
 
     @staticmethod
     def _clean_id(law_identifier: str) -> str:
@@ -51,7 +58,6 @@ class LocalGitDiffEngine:
         """Encuentra el commit más reciente de una ley en o antes de target_date (YYYY-MM-DD)."""
         clean_id = self._clean_id(law_identifier)
         file_path = f"ar/{clean_id}.md"
-        # --until acepta formato de fecha ISO
         output = self._run_git(
             ["log", "-n", "1", f"--until={target_date} 23:59:59", "--format=%H", "--", file_path]
         )
@@ -88,34 +94,33 @@ class LocalGitDiffEngine:
         commit_a = sha_a
         if not commit_a and date_a:
             commit_a = self.resolve_commit_for_date(law_identifier, date_a)
-            if not commit_a:
-                first_commit = self._run_git(["log", "--reverse", "-n", "1", "--format=%H", "--", file_path])
-                commit_a = first_commit
 
         commit_b = sha_b
         if not commit_b and date_b:
             commit_b = self.resolve_commit_for_date(law_identifier, date_b)
 
-        # Si no se pasó commit_a ni date_a, comparar contra la versión inmediatamente previa (HEAD~1)
-        if not commit_a:
+        # Si no se pasó commit_a o commit_b, consultar el historial con rev-list (ultra-rápido en C)
+        log_shas: list[str] = []
+        if not commit_a or not commit_b:
             try:
-                log_shas = self._run_git(["log", "-n", "2", "--format=%H", "--", file_path]).splitlines()
-                if len(log_shas) >= 2:
-                    commit_a = log_shas[1]  # Versión anterior inmediata
-                elif len(log_shas) == 1:
-                    commit_a = log_shas[0]
+                raw_revs = self._run_git(["rev-list", "-n", "2", "HEAD", "--", file_path])
+                log_shas = raw_revs.splitlines() if raw_revs else []
             except Exception as e:
-                logger.warning("No se pudo resolver commit previo automático para %s: %s", law_identifier, e)
+                logger.warning("No se pudo resolver rev-list para %s: %s", law_identifier, e)
 
-        # Resolver commit_b por defecto (último commit del archivo en HEAD)
-        latest_commit = ""
-        try:
-            latest_commit = self._run_git(["log", "-n", "1", "--format=%H", "--", file_path])
-        except Exception:
-            pass
+        if not commit_b:
+            commit_b = log_shas[0] if log_shas else "HEAD"
 
-        eff_a = commit_a or latest_commit
-        eff_b = commit_b or latest_commit
+        if not commit_a:
+            if len(log_shas) >= 2:
+                commit_a = log_shas[1]  # Versión anterior inmediata
+            elif len(log_shas) == 1:
+                commit_a = log_shas[0]
+            else:
+                commit_a = commit_b
+
+        eff_a = commit_a
+        eff_b = commit_b
 
         # ATAJO INSTANTÁNEO 1: Si ambos commits resueltos son idénticos (ej. norma con 1 sola versión como DNU-70-2023 o LEY-24013)
         if eff_a and eff_b and eff_a == eff_b:
