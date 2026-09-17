@@ -94,12 +94,12 @@ async def diff_node(state: LegalAgentState, config: RunnableConfig) -> dict[str,
     if not has_modifications:
         diff_data = build_diff_block_data(
             diff_response=diff_response,
-            citizen_explanation=f"El artículo {art_num or 'consultado'} de {law_id} no registra modificaciones textuales entre las versiones consultadas (redacción idéntica).",
+            citizen_explanation=None,
         )
         explanation = (
-            f"### Comparativa Normativa Oficial: {law_id}" + (f" Art. {art_num}" if art_num else "") + "\n\n"
-            f"- **Resultado del cotejo**: No se registran modificaciones textuales entre las versiones analizadas.\n"
-            f"- **Estado de redacción**: El texto oficial se mantiene idéntico en el repositorio de control de versiones."
+            f"### Cotejo Normativo Oficial: {law_id}" + (f" Art. {art_num}" if art_num else "") + "\n\n"
+            f"- **Resultado del análisis**: No se encontraron modificaciones textuales en el artículo analizado.\n"
+            f"- **Estado de redacción**: El texto oficial se mantiene idéntico en el registro normativo consolidado."
         )
         return {
             "diff_result": diff_response,
@@ -151,7 +151,7 @@ async def diff_node(state: LegalAgentState, config: RunnableConfig) -> dict[str,
         f"### Comparativa Normativa: {law_id} Art. {art_num or ''}\n\n"
         f"- **Líneas incorporadas (+)**: {adds}\n"
         f"- **Líneas suprimidas (-)**: {dels}\n"
-        f"- **Fuente**: {diff_response.diff_source} (control de versiones oficial)"
+        f"- **Fuente**: Registro oficial de legislación consolidada"
     )
 
     return {

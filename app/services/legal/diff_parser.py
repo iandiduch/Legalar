@@ -105,28 +105,14 @@ def build_diff_block_data(
 
     diff_lines, adds, dels = parse_unified_diff_to_lines(unified_diff_text)
 
-    if not has_changes or not diff_lines:
-        diff_lines = [
-            {
-                "type": "context",
-                "text": f"ARTÍCULO {art_num}.- Sin modificaciones textuales registradas entre las versiones analizadas.",
-                "lineOld": 1,
-                "lineNew": 1,
-            },
-            {
-                "type": "context",
-                "text": "La redacción se mantiene idéntica en el texto consolidado del repositorio oficial.",
-                "lineOld": 2,
-                "lineNew": 2,
-            },
-        ]
+    if not has_changes or not diff_lines or (adds == 0 and dels == 0):
+        has_changes = False
+        diff_lines = []
         adds = 0
         dels = 0
-        if not citizen_explanation:
-            citizen_explanation = (
-                f"No se registran cambios de redacción en el artículo {art_num} de {law_id} "
-                "entre las versiones consultadas. El texto analizado es idéntico."
-            )
+        citizen_explanation = None
+
+    friendly_source = "Registro Oficial de Reformas Normativas" if diff_response.diff_source == "git_local" else "Legalize API Oficial"
 
     return {
         "id": f"diff-{law_id}-{art_num}",
@@ -134,13 +120,14 @@ def build_diff_block_data(
         "lawTitle": law_title,
         "articleNumber": art_num,
         "articleEpigraph": article_epigraph or f"Artículo {art_num}",
-        "reformName": reform_name or ("Historial de control de versiones Git" if diff_response.diff_source == "git_local" else "Legalize API Oficial"),
-        "reformDate": reform_date or "Texto consolidado",
+        "reformName": reform_name or friendly_source,
+        "reformDate": reform_date or "Texto consolidado oficial",
+        "hasChanges": has_changes,
         "summary": {
             "modificationsCount": adds,
             "deletionsCount": dels,
             "substitutionsCount": min(adds, dels),
-            "citizenExplanation": citizen_explanation,
+            "citizenExplanation": citizen_explanation if has_changes else None,
         },
         "diffLines": diff_lines,
         "otherModifiedArticles": other_articles,
