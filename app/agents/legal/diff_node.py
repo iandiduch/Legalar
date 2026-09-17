@@ -1,5 +1,4 @@
-"""Nodo de Comparativa Histórica y Análisis de Reformas Jurídicas."""
-
+import asyncio
 import logging
 from typing import Any
 
@@ -51,23 +50,47 @@ async def diff_node(state: LegalAgentState, config: RunnableConfig) -> dict[str,
         except Exception as exc:
             logger.error("Error al obtener diff: %s", exc)
 
+    source_info = f"Fuente del diff: {diff_response.diff_source if diff_response else 'Desconocida'}"
     diff_content = diff_response.diff_text if diff_response else "No se pudo recuperar el diff de la norma."
+
+    # ATAJO ULTRA-RÁPIDO: Si el motor de diff detectó que no hay cambios textuales, responder al instante sin llamar al LLM
+    has_modifications = False
+    if diff_response:
+        if diff_response.article_diffs:
+            has_modifications = any(d.has_changes for d in diff_response.article_diffs)
+        elif diff_response.diff_text and "Sin diferencias" not in diff_response.diff_text and "idéntico" not in diff_response.diff_text.lower():
+            has_modifications = True
+
+    if not has_modifications:
+        target_ref = f"el artículo {art_num} de la norma {law_id}" if art_num else f"la norma {law_id}"
+        explanation = (
+            f"### Análisis de Modificaciones: {law_id}" + (f" (Art. {art_num})" if art_num else "") + "\n\n"
+            f"- **Resultado del cotejo**: No se registran modificaciones textuales en {target_ref} entre las versiones consultadas en el repositorio.\n"
+            f"- **Estado de redacción**: El texto normativo oficial se mantiene idéntico en su redacción registrada.\n"
+            f"- **Fuente de verificación**: {source_info}."
+        )
+        return {
+            "diff_result": diff_response,
+            "draft_answer": explanation,
+            "confidence": ConfidenceLevel.HIGH,
+            "messages": [AIMessage(content=explanation, name="diff_node")],
+        }
+
+    # Si hubo modificaciones, solicitar análisis sintetizado al LLM con timeout de 20s
     if len(diff_content) > 12000:
         diff_content = diff_content[:12000] + "\n\n... [diff truncado por extensión para análisis conciso]"
-    source_info = f"Fuente del diff: {diff_response.diff_source if diff_response else 'Desconocida'}"
 
     messages = [
         SystemMessage(content=DIFF_ANALYSIS_PROMPT),
         SystemMessage(content=f"CONSULTA DEL USUARIO: {state['query']}\n\nDIFF ({source_info}):\n{diff_content}"),
     ]
 
-
     try:
-        res = await llm.ainvoke(messages)
+        res = await asyncio.wait_for(llm.ainvoke(messages), timeout=20.0)
         explanation = str(res.content)
     except Exception as exc:
-        logger.warning("Fallo al generar explicación de diff: %s", exc)
-        explanation = f"Diff obtenido:\n```diff\n{diff_content}\n```"
+        logger.warning("Fallo al generar explicación de diff con LLM: %s", exc)
+        explanation = f"### Comparativa Normativa ({source_info})\n\n```diff\n{diff_content}\n```"
 
     return {
         "diff_result": diff_response,
