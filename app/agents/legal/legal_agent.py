@@ -3,17 +3,84 @@
 import logging
 from typing import Any
 
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from app.agents.legal.state import LegalAgentState
 from app.core.structured_output import invoke_structured_with_retry
-from app.domain.models import AgentRole, ConfidenceLevel
+from app.domain.models import AgentRole, ConfidenceLevel, QueryIntent
 from app.schemas.legal.citation import LegalCitation
 from app.services.legal.retriever import HybridLegalRetriever
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Query rewriting conversacional — patrón estándar de producción RAG
+# ---------------------------------------------------------------------------
+
+_QUERY_REWRITE_PROMPT = """Eres un optimizador de queries para búsqueda en corpus legal argentino.
+
+Dado el historial conversacional y la consulta actual del usuario, genera UNA SOLA frase de
+búsqueda optimizada (máximo 200 caracteres) para recuperar los artículos normativos relevantes.
+
+Reglas:
+- Si la consulta es sustantiva y directa (pregunta sobre una ley, artículo, institución jurídica,
+  derecho concreto, etc.), devólvela sin modificaciones.
+- Si la consulta es una repregunta, aclaración o pedido de simplificación de la respuesta anterior
+  ("no entendí", "explicame mejor", "en criollo", "¿por qué?", "no caí", "no me quedó claro", etc.),
+  reformulá el TEMA LEGAL subyacente de la respuesta anterior del asistente como query de búsqueda concreta.
+- Nunca incluyas frases genéricas como "explicar", "aclarar" o "simplificar" en la query resultante.
+- Responde SOLO con la frase de búsqueda optimizada, sin comillas, sin explicaciones."""
+
+
+def _has_prior_ai_context(messages: list) -> bool:
+    """True si hay al menos un mensaje previo del asistente en el historial."""
+    return any(
+        getattr(msg, "type", None) in ("ai", "AIMessage") or msg.__class__.__name__ == "AIMessage"
+        for msg in messages
+    )
+
+
+async def _rewrite_query_for_retrieval(llm: Any, query: str, messages: list) -> str:
+    """Reescribe la query de retrieval usando el LLM con el contexto conversacional.
+
+    Para consultas sustantivas y directas: devuelve la query original sin cambios.
+    Para repreguntas o aclaraciones: extrae el tema legal subyacente del historial
+    y lo formula como query de búsqueda óptima para el corpus normativo.
+
+    Solo se invoca cuando hay historial previo del asistente (no en la primera consulta).
+    Usa max_tokens mínimo para minimizar latencia y costo.
+    """
+    if not llm or not _has_prior_ai_context(messages):
+        return query
+
+    # Contexto reducido: últimos 4 mensajes son suficientes para entender el tema
+    recent = messages[-4:] if len(messages) > 4 else messages
+
+    rewrite_messages = [
+        SystemMessage(content=_QUERY_REWRITE_PROMPT),
+        *recent,
+        HumanMessage(content=f"[CONSULTA ACTUAL A OPTIMIZAR]: {query}"),
+    ]
+
+    try:
+        # Llamada ligera: max_tokens pequeño, solo necesitamos la query reformulada
+        res = await llm.ainvoke(rewrite_messages, config={"max_tokens": 100})
+        rewritten = str(res.content).strip()
+        if rewritten and len(rewritten) > 5:
+            logger.info(
+                "legal_agent: query reescrita para retrieval | original=%r -> rewritten=%r",
+                query[:60],
+                rewritten[:80],
+            )
+            return rewritten[:300]
+    except Exception as exc:
+        # Si el rewrite falla, seguimos con la query original — nunca bloqueamos
+        logger.warning("legal_agent: fallo en rewrite de query, usando original: %s", exc)
+
+    return query
+
 
 
 class LegalAnswerPayload(BaseModel):
@@ -55,16 +122,21 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
     citations: list[LegalCitation] = []
     doc_text = state.get("document_text")
     doc_type = state.get("document_type") or "documento"
+    messages_history = state.get("messages", [])
 
-    # 1. Recuperación híbrida (PostgreSQL FTS + Pinecone)
-    # Si proviene de una URL, nutrimos la búsqueda con los conceptos clave del enlace extraído
-    search_query = query
+    # 1. Query rewriting conversacional via LLM (patrón estándar de producción RAG)
+    # El LLM devuelve la query sin cambios si es sustantiva, o la reformula
+    # alrededor del tema legal del historial si es una repregunta/aclaración.
+    # Solo se activa cuando hay historial previo del asistente.
     if doc_text and state.get("intent") == QueryIntent.URL_FACT_CHECK:
-        # Extraer extracto inicial del contenido web para encontrar las leyes correlativas
+        # URL Fact-checking: enriquecer con el snippet del contenido web extraído
         clean_lines = [l for l in doc_text.splitlines() if not l.startswith("URL FUENTE:")]
         web_snippet = " ".join(clean_lines)[:350].strip()
         search_query = f"{query} {web_snippet}"
+    else:
+        search_query = await _rewrite_query_for_retrieval(llm, query, messages_history)
 
+    # 2. Recuperación híbrida (PostgreSQL FTS + Pinecone)
     if retriever:
         try:
             citations = await retriever.search(query=search_query, top_k=10)
@@ -114,7 +186,7 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
         f"{context_additions}"
     )
 
-    recent_messages = state["messages"][-6:] if len(state["messages"]) > 6 else state["messages"]
+    recent_messages = messages_history[-6:] if len(messages_history) > 6 else messages_history
     messages = [
         SystemMessage(content=system_instruction),
         *recent_messages,

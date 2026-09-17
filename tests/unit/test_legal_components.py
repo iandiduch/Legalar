@@ -267,3 +267,24 @@ async def test_diff_node_clarifies_when_no_law_provided():
     assert "LEY-26994" not in res["final_answer"]
     assert "por favor indicá qué ley" in res["final_answer"].lower()
 
+
+def test_has_prior_ai_context():
+    """_has_prior_ai_context detecta si hay historial del asistente para activar el query rewriting."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from app.agents.legal.legal_agent import _has_prior_ai_context
+
+    # Con historial de asistente: debe reescribir la query via LLM
+    messages_with_ai = [
+        HumanMessage(content="estar imputado significa que soy culpable?"),
+        AIMessage(content="No, el imputado goza de presuncion de inocencia (art. 316 CPPN)."),
+        HumanMessage(content="no entendi"),
+    ]
+    assert _has_prior_ai_context(messages_with_ai) is True
+
+    # Sin historial (primera consulta): devuelve la query original sin LLM call
+    messages_only_human = [
+        HumanMessage(content="estar imputado significa que soy culpable?"),
+    ]
+    assert _has_prior_ai_context(messages_only_human) is False
+    assert _has_prior_ai_context([]) is False

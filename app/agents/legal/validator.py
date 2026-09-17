@@ -33,6 +33,12 @@ Criterios de validación:
 3. ¿La respuesta agregó afirmaciones contundentes que no figuran en la evidencia legal?
 4. Si la respuesta es jurídicamente sólida, refina la redacción para garantizar máxima claridad profesional.
 5. REGLA ESTRICTA DE ESTILO: La respuesta final debe ser directa y en Markdown. PROHIBIDO incluir saludos de carta ("Estimado/a", "Colega") o firmas/despedidas ("Atentamente", "Quedo a su disposición").
+
+IMPORTANTE sobre el campo 'synthesized_final_answer':
+- Este campo debe ser SIEMPRE una respuesta jurídica directa al usuario, nunca un meta-comentario.
+- Si la respuesta es válida: proporciona la versión mejorada, pulida y clara.
+- Si la evidencia es insuficiente para validar completamente: proporciona la mejor versión posible basada en el borrador y tu conocimiento jurídico, indicando si algún aspecto requiere consulta profesional.
+- NUNCA escribas en este campo frases como 'la respuesta no está en la evidencia' o 'no puedo validar'. Eso va en 'unsupported_claims' o 'warning_notes'.
 """
 
 
@@ -88,10 +94,23 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
             max_attempts=settings.STRUCTURED_OUTPUT_MAX_ATTEMPTS if settings else 2,
         )
         synthesized = (check.synthesized_final_answer or "").strip()
-        if len(synthesized) >= 40:
+
+        # Solo usamos la versión sintetizada del validador cuando:
+        # 1. El validador marcó la respuesta como válida, Y
+        # 2. La síntesis es sustantiva (>= 40 chars) - no es un mensaje de error/meta-comentario
+        # Si is_valid=False, preservamos el borrador del agente legal; los problemas
+        # quedan registrados en validation_result.unsupported_claims y warning_notes.
+        if check.is_valid and len(synthesized) >= 40:
             final_answer = synthesized
+        elif not check.is_valid:
+            logger.info(
+                "Validador marcó respuesta como inválida para thread '%s'; preservando borrador del agente legal. Problemas: %s",
+                state.get("thread_id", ""),
+                check.unsupported_claims,
+            )
+            final_answer = draft
         else:
-            logger.info("Validador devolvió respuesta sintética corta (%d chars), preservando borrador original.", len(synthesized))
+            logger.info("Validador devolvió síntesis corta (%d chars); preservando borrador original.", len(synthesized))
             final_answer = draft
 
         val_summary = LegalValidationSummary(
