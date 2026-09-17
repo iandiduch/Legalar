@@ -40,7 +40,10 @@ Tu objetivo es determinar con rigor qué tipo de tarea solicita el usuario segú
 
 3. 'document_analysis': El usuario proporciona un texto de contrato, convenio, carta documento o pide auditar cláusulas.
 4. 'url_fact_check': El usuario incluye un enlace o link web (noticia, publicación) para contrastar su veracidad con la ley.
-5. 'general_inquiry': Saludos, preguntas generales no jurídicas ni normativas.
+5. 'general_inquiry':
+- Saludos, despedidas, agradecimientos o fórmulas de cortesía (ej: "hola", "buenas", "buen día", "buenas tardes", "¿cómo estás?", "muchas gracias", "gracias", "chau", "hasta luego", "genial").
+- Preguntas sobre la identidad o capacidades del asistente (ej: "¿quién sos?", "¿qué podés hacer?", "¿cómo funciona esto?").
+- Mensajes que NO plantean un caso, norma, hecho, problema ni consulta jurídica.
 
 Reglas para 'wants_explanation' (Aplica solo cuando intent='version_diff'):
 - wants_explanation = False: El usuario solo pide el diff/comparativa sin pedir pedagogía (ej: "diff del art 1198", "qué cambió en LEY-26994 art 1222").
@@ -107,7 +110,9 @@ async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[st
 
     if not llm:
         # Fallback determinista por palabras clave
-        q = state["query"].lower()
+        q = state["query"].lower().strip()
+        if q in ("hola", "buenas", "buen dia", "buen día", "buenas tardes", "buenas noches", "gracias", "muchas gracias", "chau", "hola!"):
+            return {"intent": QueryIntent.GENERAL_INQUIRY}
         if "qué cambió" in q or "que cambio" in q or "reforma" in q or "redacción anterior" in q:
             return {"intent": QueryIntent.VERSION_DIFF}
         return {"intent": QueryIntent.LEGAL_CONSULTATION}
@@ -134,5 +139,8 @@ async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[st
         }
     except Exception as exc:
         logger.warning("Fallo en router estructurado, usando fallback: %s", exc)
+        q = state["query"].lower().strip()
+        if q in ("hola", "buenas", "buen dia", "buen día", "buenas tardes", "buenas noches", "gracias", "muchas gracias", "chau", "hola!"):
+            return {"intent": QueryIntent.GENERAL_INQUIRY}
         return {"intent": QueryIntent.LEGAL_CONSULTATION}
 

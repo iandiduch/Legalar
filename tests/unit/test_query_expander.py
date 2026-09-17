@@ -73,15 +73,16 @@ def test_filter_used_citations_by_body_mention():
     assert used[0].article_number == "62"
 
 
-def test_filter_used_citations_fallback_on_no_match():
-    """Valida que si no hay coincidencias se preserven solo las top 2 citas para evitar bloat de 10."""
+def test_filter_used_citations_empty_on_no_match():
+    """Valida que si no hay coincidencias ni citas en la respuesta se devuelva lista vacía (cero fuentes inventadas)."""
     citations = [
         LegalCitation(law_identifier="LEY-1", law_title="T1", article_number=str(i), exact_quote="...")
         for i in range(10)
     ]
     used = _filter_used_citations(citations, [], "Respuesta general sin mención explícita de artículos.")
 
-    assert len(used) == 2
+    assert len(used) == 0
+
 
 
 @pytest.mark.asyncio
@@ -125,3 +126,32 @@ async def test_expand_legal_query_with_mock_llm():
     assert len(res.sub_queries) == 3
     assert "LEY-11179:62" in res.canonical_articles
     assert "LEY-11179:172" in res.canonical_articles
+
+
+@pytest.mark.asyncio
+async def test_general_inquiry_node_returns_empty_citations():
+    """Valida que general_inquiry_node responda cordialmente con cero citas normativas."""
+    from app.agents.legal.general_inquiry import general_inquiry_node
+    from app.agents.legal.state import LegalAgentState
+
+    state = {
+        "query": "hola",
+        "messages": [],
+    }
+    config = {"configurable": {"llm_client": None}}
+
+    res = await general_inquiry_node(state, config)
+
+    assert res["citations"] == []
+    assert "Legalar" in res["final_answer"]
+    assert len(res["messages"]) == 1
+
+
+def test_route_intent_edge_routes_general_inquiry():
+    """Valida que route_intent_edge derive GENERAL_INQUIRY al nodo general_inquiry."""
+    from app.agents.legal.graph import route_intent_edge
+    from app.domain.models import QueryIntent
+
+    state = {"intent": QueryIntent.GENERAL_INQUIRY}
+    edge = route_intent_edge(state)
+    assert edge == "general_inquiry"

@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/LangGraph-Legal--Agent-orange?style=for-the-badge&logo=langchain&logoColor=white" alt="LangGraph" />
   <img src="https://img.shields.io/badge/OpenRouter%20%2F%20OpenAI-Flexible_Models-412991?style=for-the-badge&logo=openai&logoColor=white" alt="LLM" />
   <img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge&logo=apache&logoColor=white" alt="Apache 2.0" />
-  <img src="https://img.shields.io/badge/Tests-40_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
+  <img src="https://img.shields.io/badge/Tests-42_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
 </p>
 
 > 🌐 **Chat en Producción & Aplicación Web**: [https://legalar.onys.app](https://legalar.onys.app)
@@ -17,7 +17,8 @@
 Sistema conversacional y motor de análisis normativo de grado de producción especializado en **Derecho Positivo Argentino**. La arquitectura utiliza como fuente primaria de verdad el repositorio versionado **`legalize-dev/legalize-ar`** (~31.326 normas consolidadas en Markdown y versionadas en Git).
 
 La orquestación se basa en **LangGraph** bajo un flujo desacoplado: un **Ruteador Inteligente** clasifica la consulta mediante Structured Output estricto (Pydantic v2) hacia nodos de ejecución especializados:
-- **`Legal Agent`**: Consultas doctrinales y normativas respaldadas por un pipeline de **RAG Híbrido Relacional** (búsqueda semántica en Pinecone + Full-Text Search en PostgreSQL con índice GIN en español, expansión relacional de consultas multi-norma y fusión RRF).
+- **`General Inquiry`**: Saludos, fórmulas de cortesía y preguntas sobre capacidades resueltas de forma instantánea sin latencia de búsqueda ni citas normativas innecesarias.
+- **`Legal Agent`**: Consultas doctrinales y normativas respaldadas por un pipeline de **RAG Híbrido Relacional** (búsqueda semántica en Pinecone + Full-Text Search en PostgreSQL con índice GIN en español, expansión relacional de consultas multi-norma, formulación proactiva de preguntas de aclaración fáctica y fusión RRF).
 - **`URL Fact-Checking`**: Auditoría de noticias y enlaces web externos bajo principio *zero-trust*, extrayendo el contenido de forma segura con protección SSRF y contrastándolo contra normas vigentes.
 - **`Document Analyzer`**: Auditoría de contratos, convenios y cartas documento (PDF, DOCX, TXT) con defensas contra inyección de prompts, zip-slip y bombas de descompresión.
 - **`Diff Node`**: Comparador histórico de reformas legislativas (ej: impacto del DNU 70/2023 sobre el Código Civil y Comercial y la Ley de Contrato de Trabajo) mediante un **motor Git local autónomo** con fallback de circuit-breaker sobre la API de Legalize.
@@ -49,7 +50,7 @@ CHATBOT-LEGALIZE/
 │   └── api/                   # FastAPI Gateway: routers v1 (/legal, /ingest, /prompts, /admin, /health), middlewares y auth
 ├── data/                      # Almacenamiento local: golden_set.json y evaluation_results.json
 ├── scripts/                   # CLI de inicialización (init_db), bootstrap legal (legal_bootstrap) y evaluación (evaluate_rag)
-├── tests/                     # Suite de pruebas automatizadas: unitarias (40 tests), integración, seguridad y persistencia
+├── tests/                     # Suite de pruebas automatizadas: unitarias (42 tests), integración, seguridad y persistencia
 ├── Dockerfile                 # Contenedor multi-stage optimizado para Dokploy (con git y python 3.12)
 ├── docker-compose.yml         # Orquestación local (FastAPI, PostgreSQL 16, Redis, Phoenix opcional)
 ├── pyproject.toml             # Configuración unificada de herramientas de desarrollo

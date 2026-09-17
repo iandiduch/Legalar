@@ -136,18 +136,15 @@ def _filter_used_citations(
             seen.add(key)
             used.append(c)
 
-    # Si por alguna razón ninguna coincidió de forma explícita (edge case),
-    # conservamos solo las top 2 más relevantes para evitar devolver 10 citas no relacionadas
-    if not used and citations:
-        return citations[:2]
-
     return used
 
 
 
 
 class LegalAnswerPayload(BaseModel):
-    answer: str = Field(description="Respuesta jurídica integral, clara y con citas normativas específicas")
+    answer: str = Field(
+        description="Respuesta jurídica integral, clara y con citas normativas específicas. Si faltan datos fácticos esenciales para resolver el caso, incluye preguntas de aclaración."
+    )
     articles_referenced: list[str] = Field(
         default_factory=list,
         description="Identificadores y números de artículos citados (ej: ['LEY-26994:1198', 'DNU-70-2023:256'])",
@@ -171,6 +168,10 @@ Directivas obligatorias:
 5. Distingue entre normas de orden público (irrenunciables) y normas supletorias (disponibles por las partes).
 6. No inventes artículos ni leyes. Si no hay suficiente información en la evidencia, acláralo con honestidad profesional.
 7. Utiliza lenguaje jurídico claro y accesible, manteniendo la máxima precisión técnica.
+8. PREGUNTAS PROACTIVAS DE ACLARACIÓN ANTE CONSULTAS INCOMPLETAS O CASOS FÁCTICOS INDETERMINADOS:
+   Si la consulta del usuario plantea una situación jurídica a la que le faltan datos de hecho indispensables para determinar con certeza la solución legal, computar un plazo o realizar una liquidación (por ejemplo: reclamo por despido sin fechas ni sueldo, duda locativa sin tipo de inmueble ni fecha contractual, intimación sin causal, deuda sin fecha de mora):
+   a) Explica con claridad el régimen legal rector citando las normas correspondientes de la evidencia.
+   b) Identifica de forma proactiva qué elementos fácticos faltan e incluye una sección titulada '### Para poder precisar tu caso:' con 2 a 4 preguntas puntuales que orienten al usuario sobre qué datos debe aportar para emitir un dictamen concluyente.
 """
 
 

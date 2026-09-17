@@ -8,6 +8,7 @@ from langgraph.graph import END, StateGraph
 
 from app.agents.legal.diff_node import diff_node
 from app.agents.legal.document_analyzer import document_analyzer_node
+from app.agents.legal.general_inquiry import general_inquiry_node
 from app.agents.legal.legal_agent import legal_agent_node
 from app.agents.legal.router import router_node
 from app.agents.legal.state import LegalAgentState
@@ -24,6 +25,8 @@ def route_intent_edge(state: LegalAgentState) -> str:
         return "document_analyzer"
     if intent == QueryIntent.VERSION_DIFF:
         return "diff_node"
+    if intent == QueryIntent.GENERAL_INQUIRY:
+        return "general_inquiry"
     return "legal_agent"
 
 
@@ -36,6 +39,7 @@ def build_legal_graph(checkpointer: BaseCheckpointSaver | None = None) -> Any:
     workflow.add_node("legal_agent", legal_agent_node)
     workflow.add_node("document_analyzer", document_analyzer_node)
     workflow.add_node("diff_node", diff_node)
+    workflow.add_node("general_inquiry", general_inquiry_node)
     workflow.add_node("validator", legal_validator_node)
 
     # 2. Conectar aristas
@@ -48,14 +52,16 @@ def build_legal_graph(checkpointer: BaseCheckpointSaver | None = None) -> Any:
             "legal_agent": "legal_agent",
             "document_analyzer": "document_analyzer",
             "diff_node": "diff_node",
+            "general_inquiry": "general_inquiry",
         },
     )
 
     # Los agentes de consulta jurídica y auditoría pasan por el validador
     workflow.add_edge("legal_agent", "validator")
     workflow.add_edge("document_analyzer", "validator")
-    # El diff normativo es fáctico y determinista (Git nativo), finaliza directamente sin latencia
+    # El diff normativo y las consultas generales finalizan directamente sin latencia
     workflow.add_edge("diff_node", END)
+    workflow.add_edge("general_inquiry", END)
 
     # El validador finaliza el ciclo para consultas y análisis
     workflow.add_edge("validator", END)
