@@ -14,7 +14,7 @@ from opentelemetry.trace import Status, StatusCode
 
 from app.domain.models import AgentRole
 
-_tracer = trace.get_tracer("intelligence-system.agents")
+_tracer = trace.get_tracer("legal-agent.agents")
 
 
 def _record_span_exception(span: trace.Span, exc: Exception) -> None:
@@ -53,7 +53,7 @@ def hotl_escalation_span(
     reason: str,
     priority: str,
     contact_channel: str,
-    origin_agent: str = AgentRole.ESCALATION.value,
+    origin_agent: str = "legal_agent",
 ) -> Iterator[trace.Span]:
     """los eventos HOTL deben quedar identificados con
     atributos propios, permitiendo filtros directos en Arize Phoenix."""
