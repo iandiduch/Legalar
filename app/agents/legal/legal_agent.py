@@ -11,6 +11,7 @@ from app.agents.legal.state import LegalAgentState
 from app.core.structured_output import invoke_structured_with_retry
 from app.domain.models import AgentRole, ConfidenceLevel, QueryIntent
 from app.schemas.legal.citation import LegalCitation
+from app.services.legal.query_expander import expand_legal_query
 from app.services.legal.retriever import HybridLegalRetriever
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,68 @@ async def _rewrite_query_for_retrieval(llm: Any, query: str, messages: list) -> 
     return query
 
 
+def _filter_used_citations(
+    citations: list[LegalCitation],
+    articles_referenced: list[str],
+    answer_text: str,
+) -> list[LegalCitation]:
+    """Filtra la lista de citas para devolver únicamente aquellas que fueron
+    efectivamente referenciadas en el dictamen o citadas en el texto de respuesta.
+
+    Evita el 'citation bloat' (presentar 10 fuentes cuando el análisis solo utilizó 2 o 3).
+    """
+    if not citations:
+        return []
+
+    ref_keys = set()
+    ref_art_nums = set()
+    for ref in articles_referenced:
+        clean = str(ref).strip().replace(" ", "").upper()
+        if ":" in clean:
+            parts = clean.split(":", 1)
+            ref_keys.add(f"{parts[0]}:{parts[1]}")
+            ref_art_nums.add(parts[1])
+        else:
+            ref_art_nums.add(clean)
+
+    answer_lower = answer_text.lower()
+    used: list[LegalCitation] = []
+    seen: set[str] = set()
+
+    for c in citations:
+        key = f"{c.law_identifier}:{c.article_number}".upper()
+        art_num = str(c.article_number).lower().strip()
+
+        # Criterio 1: Coincidencia con articles_referenced del payload estructurado
+        matched = (key in ref_keys) or (art_num in ref_art_nums)
+
+        # Criterio 2: Mención explícita del artículo en el cuerpo del dictamen
+        if not matched and art_num:
+            patterns = [
+                f"art. {art_num}",
+                f"artículo {art_num}",
+                f"articulo {art_num}",
+                f"art {art_num}",
+                f"arts. {art_num}",
+                f"artículos {art_num}",
+                f"articulos {art_num}",
+            ]
+            if any(p in answer_lower for p in patterns):
+                matched = True
+
+        if matched and key not in seen:
+            seen.add(key)
+            used.append(c)
+
+    # Si por alguna razón ninguna coincidió de forma explícita (edge case),
+    # conservamos solo las top 2 más relevantes para evitar devolver 10 citas no relacionadas
+    if not used and citations:
+        return citations[:2]
+
+    return used
+
+
+
 
 class LegalAnswerPayload(BaseModel):
     answer: str = Field(description="Respuesta jurídica integral, clara y con citas normativas específicas")
@@ -136,10 +199,44 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
     else:
         search_query = await _rewrite_query_for_retrieval(llm, query, messages_history)
 
-    # 2. Recuperación híbrida (PostgreSQL FTS + Pinecone)
+    # 2. Expansión relacional de la consulta jurídica (análisis multi-norma)
+    analysis = await expand_legal_query(llm, search_query, messages_history)
+
+    # 3. Recuperación híbrida inteligente (PostgreSQL FTS + Pinecone + Normas Canónicas)
     if retriever:
         try:
-            citations = await retriever.search(query=search_query, top_k=10)
+            top_k_retrieval = getattr(settings, "RAG_TOP_K", 8) if settings else 8
+
+            # A. Recuperar artículos canónicos exactos si fueron identificados dogmáticamente
+            exact_citations: list[LegalCitation] = []
+            if analysis.canonical_articles:
+                try:
+                    exact_citations = await retriever.retrieve_exact_articles(analysis.canonical_articles)
+                except Exception as exc:
+                    logger.warning("Fallo al recuperar artículos canónicos exactos: %s", exc)
+
+            # B. Búsqueda semántica/léxica: multi-query si es relacional, o estándar si es unívoca
+            if analysis.is_relational and len(analysis.sub_queries) > 1:
+                search_citations = await retriever.search_multi_query(
+                    queries=analysis.sub_queries,
+                    top_k=top_k_retrieval,
+                )
+            else:
+                search_citations = await retriever.search(
+                    query=search_query,
+                    top_k=top_k_retrieval,
+                )
+
+            # C. Fusión y deduplicación priorizando normas canónicas exactas
+            seen_keys = set()
+            merged_citations: list[LegalCitation] = []
+            for c in exact_citations + search_citations:
+                k = f"{c.law_identifier}:{c.article_number}"
+                if k not in seen_keys:
+                    seen_keys.add(k)
+                    merged_citations.append(c)
+
+            citations = merged_citations[:12]
         except Exception as exc:
             logger.error("Error en retriever híbrido: %s", exc)
 
@@ -202,14 +299,19 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
         )
         answer = payload.answer
         confidence = payload.confidence
+        articles_referenced = payload.articles_referenced
     except Exception as exc:
         logger.warning("Fallo en estructurado de legal_agent, usando generación directa: %s", exc)
         res = await llm.ainvoke(messages)
         answer = str(res.content)
         confidence = ConfidenceLevel.MEDIUM if citations else ConfidenceLevel.LOW
+        articles_referenced = []
+
+    # 4. Filtrar citaciones para devolver ÚNICAMENTE las fuentes que sustentan la respuesta
+    filtered_citations = _filter_used_citations(citations, articles_referenced, answer)
 
     return {
-        "citations": citations,
+        "citations": filtered_citations,
         "draft_answer": answer,
         "confidence": confidence,
         "messages": [AIMessage(content=answer, name=AgentRole.LEGAL_AGENT.value)],
