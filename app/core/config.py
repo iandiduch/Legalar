@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     # --- App ---
     ENVIRONMENT: Literal["local", "docker", "production"] = "local"
     LOG_LEVEL: str = "INFO"
+    API_PORT: int = 8000
     CORS_ORIGINS: list[str] = ["*"]
     DOCS_ENABLED: bool | None = None
 
