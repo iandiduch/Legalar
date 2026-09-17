@@ -58,6 +58,7 @@ services:
       REDIS_HOST: redis
       PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_COLLECTOR_ENDPOINT:-http://phoenix:6006/v1/traces}
       UPLOAD_DIR: /app/data/uploads
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
     expose:
       - "8000"
     networks:
