@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
@@ -46,7 +46,7 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
     citations = state.get("citations", [])
 
     # Si no hay citas normativas que auditar (ej. consultas de diff histórico o análisis directo),
-    # no tiene sentido disparar una llamada LLM pesada: ahorramos 20-25s de latencia.
+    # aprobamos de inmediato ahorrando latencia innecesaria.
     if not citations:
         val_summary = LegalValidationSummary(
             is_valid=True,
@@ -60,13 +60,14 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
             "messages": [AIMessage(content=draft, name=AgentRole.VALIDATOR.value)],
         }
 
-    # Validación heurística preliminar de estado de vigencia
-    repealed_citations = [c for c in citations if c.status != "in_force"]
-    has_repealed = len(repealed_citations) > 0
+    has_repealed = any(c.status in ("repealed", "derogated", "derogada") for c in citations)
 
-    evidence_summary = "\n".join(
-        [f"- {c.law_identifier} Art. {c.article_number} (Vigencia: {c.status}): {c.exact_quote}" for c in citations]
-    )
+    evidence_lines = []
+    for c in citations:
+        evidence_lines.append(
+            f"- {c.law_identifier} Art. {c.article_number}: estado='{c.status}', texto='{c.exact_quote[:200]}'"
+        )
+    evidence_summary = "\n".join(evidence_lines) if evidence_lines else "Sin citas asociadas."
 
     system_instruction = (
         f"{VALIDATOR_PROMPT}\n\n"
@@ -75,7 +76,7 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
 
     messages = [
         SystemMessage(content=system_instruction),
-        SystemMessage(content=f"RESPUESTA BORRADOR A VALIDAR:\n\n{draft}"),
+        HumanMessage(content=f"RESPUESTA BORRADOR A VALIDAR:\n\n{draft}"),
     ]
 
     try:
@@ -86,7 +87,13 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
             messages,
             max_attempts=settings.STRUCTURED_OUTPUT_MAX_ATTEMPTS if settings else 2,
         )
-        final_answer = check.synthesized_final_answer
+        synthesized = (check.synthesized_final_answer or "").strip()
+        if len(synthesized) >= 40:
+            final_answer = synthesized
+        else:
+            logger.info("Validador devolvió respuesta sintética corta (%d chars), preservando borrador original.", len(synthesized))
+            final_answer = draft
+
         val_summary = LegalValidationSummary(
             is_valid=check.is_valid,
             all_norms_in_force=check.all_norms_in_force and not has_repealed,

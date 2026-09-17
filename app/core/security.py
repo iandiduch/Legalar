@@ -52,14 +52,10 @@ def hash_api_key(plaintext: str, settings: Settings) -> str:
 
 
 def _client_ip(request: Request) -> str:
-    """Extrae la IP real del cliente considerando cabeceras de proxy inverso (Nginx)."""
-    xff = request.headers.get("X-Forwarded-For")
-    if xff:
-        return xff.split(",")[0].strip()
-    x_real_ip = request.headers.get("X-Real-IP")
-    if x_real_ip:
-        return x_real_ip.strip()
-    return request.client.host if request.client else "unknown"
+    """Extrae la IP del cliente procesada de forma segura por ProxyHeadersMiddleware."""
+    if hasattr(request, "client") and request.client and getattr(request.client, "host", None):
+        return str(request.client.host)
+    return "unknown"
 
 
 async def check_legal_rate_limit(

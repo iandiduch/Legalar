@@ -197,7 +197,6 @@ app.include_router(
     dependencies=[Depends(require_scope(ApiKeyScope.ADMIN))],
 )
 
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().CORS_ORIGINS,

@@ -41,41 +41,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/legal", tags=["Legal Agent"])
 
 
-def get_settings() -> Settings:
-    return Settings()
-
-
-def get_diff_engine(settings: Annotated[Settings, Depends(get_settings)]) -> LocalGitDiffEngine:
-    return LocalGitDiffEngine(repo_path=settings.LEGALIZE_REPO_PATH)
-
-
-def get_legalize_api_client(
-    settings: Annotated[Settings, Depends(get_settings)],
-    diff_engine: Annotated[LocalGitDiffEngine, Depends(get_diff_engine)],
-) -> LegalizeApiClient:
-    return LegalizeApiClient(settings=settings, local_diff_engine=diff_engine)
-
-
-def get_legal_retriever(
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> HybridLegalRetriever:
-    try:
-        pinecone_c = build_pinecone_client(settings)
-    except Exception:
-        pinecone_c = None
-
-    try:
-        embeddings_c = build_embeddings_client(settings)
-    except Exception:
-        embeddings_c = None
-
-    sessionmaker = get_sessionmaker(settings)
-    return HybridLegalRetriever(
-        settings=settings,
-        pinecone_client=pinecone_c,
-        embeddings_client=embeddings_c,
-        sessionmaker=sessionmaker,
-    )
+from app.api.dependencies import (
+    get_legal_retriever,
+    get_legalize_api_client,
+    get_local_diff_engine,
+    get_settings_dep as get_settings,
+)
 
 
 @router.post(
@@ -433,7 +404,24 @@ async def analyze_document_endpoint(
         }
     }
 
-    final_state = await app_graph.ainvoke(initial_state, config=config)
+    try:
+        final_state = await asyncio.wait_for(
+            app_graph.ainvoke(initial_state, config=config),
+            timeout=85.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Timeout de 85s superado en auditoría de documento (%s)", req.thread_id)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="La auditoría del documento excedió el tiempo límite máximo de 85 segundos. Por favor reintente con una sección más acotada.",
+        )
+    except Exception as exc:
+        logger.error("Error durante auditoría de documento: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error durante el análisis del documento: {str(exc)}",
+        )
+
     duration = time.time() - start_time
     val_res = final_state.get("validation_result") or LegalValidationSummary(is_valid=True)
 
@@ -479,11 +467,12 @@ async def legal_diff_endpoint(
     dependencies=[Depends(require_scope(ApiKeyScope.ADMIN))],
 )
 async def trigger_legal_sync(
+    request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
-    sessionmaker = get_sessionmaker(settings)
-    embeddings = build_embeddings_client(settings)
-    pinecone_c = build_pinecone_client(settings)
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None) or get_sessionmaker(settings)
+    embeddings = getattr(request.app.state, "embeddings_client", None) or build_embeddings_client(settings)
+    pinecone_c = getattr(request.app.state, "pinecone_client", None) or build_pinecone_client(settings)
 
     worker = LegalIngestionService(
         settings=settings,

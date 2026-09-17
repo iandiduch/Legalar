@@ -170,16 +170,21 @@ async def extract_document_text(
             return extracted_text.strip()
 
         # Si tiene menos de 80 caracteres, es un PDF escaneado (fotocopia/imagen)
-        logger.info("PDF escaneado detectado (sin capa de texto). Procediendo con visión OCR.")
-        # Extraemos la imagen de la primera página con pdfplumber si es posible
+        logger.info("PDF escaneado detectado (sin capa de texto suficiente). Procediendo con visión OCR multi-página.")
         try:
             with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-                if pdf.pages:
-                    first_page_img = pdf.pages[0].to_image(resolution=150).original
+                max_ocr_pages = min(len(pdf.pages), 5)
+                transcribed_pages = []
+                for idx in range(max_ocr_pages):
+                    page_img = pdf.pages[idx].to_image(resolution=150).original
                     buffered = io.BytesIO()
-                    first_page_img.save(buffered, format="JPEG")
-                    img_bytes = buffered.getvalue()
-                    return await _transcribe_image_with_vision(img_bytes, "image/jpeg", settings, vision_llm)
+                    page_img.save(buffered, format="JPEG")
+                    page_img_bytes = buffered.getvalue()
+                    page_text = await _transcribe_image_with_vision(page_img_bytes, "image/jpeg", settings, vision_llm)
+                    if page_text.strip():
+                        transcribed_pages.append(f"--- PÁGINA {idx + 1} ---\n{page_text.strip()}")
+                if transcribed_pages:
+                    return "\n\n".join(transcribed_pages)
         except Exception as exc:
             logger.warning("Fallo en rasterizado de PDF escaneado: %s", exc)
 

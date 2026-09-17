@@ -8,6 +8,7 @@ o commits históricos directamente sobre el repositorio local 'legalize-ar'.
 import difflib
 import logging
 import os
+import re
 import subprocess
 from datetime import datetime
 from typing import Any
@@ -28,15 +29,15 @@ class LocalGitDiffEngine:
 
     def _run_git(self, args: list[str], timeout: float = 4.0) -> str:
         """Ejecuta un comando git en el repositorio local y retorna stdout con timeout estricto."""
+        cmd = ["git", "-C", self.repo_path] + args
         try:
             res = subprocess.run(
-                ["git", *args],
-                cwd=self.repo_path,
+                cmd,
                 capture_output=True,
                 text=True,
+                check=True,
                 encoding="utf-8",
                 errors="replace",
-                check=True,
                 timeout=timeout,
             )
             return res.stdout.strip()
@@ -52,12 +53,28 @@ class LocalGitDiffEngine:
 
     @staticmethod
     def _clean_id(law_identifier: str) -> str:
-        return law_identifier.replace("/", "-").strip()
+        # Whitelist estricta: solo alfanuméricos, guiones y guiones bajos (Anti-Path Traversal)
+        cleaned = re.sub(r"[^a-zA-Z0-9_-]", "-", law_identifier).strip("-")
+        if not cleaned:
+            raise ValueError(f"Identificador de norma inválido: '{law_identifier}'")
+        return cleaned
+
+    def _resolve_paths(self, law_identifier: str) -> tuple[str, str]:
+        """Resuelve la ruta relativa y absoluta asegurando que no haya escape de directorio."""
+        clean_id = self._clean_id(law_identifier)
+        rel_path = f"ar/{clean_id}.md"
+        norm_repo = os.path.abspath(self.repo_path)
+        disk_path = os.path.abspath(os.path.join(norm_repo, "ar", f"{clean_id}.md"))
+        try:
+            if os.path.commonpath([disk_path, norm_repo]) != norm_repo:
+                raise ValueError("Path traversal detectado fuera del repositorio.")
+        except Exception:
+            raise ValueError("Ruta de archivo inválida o fuera del repositorio permitido.")
+        return rel_path, disk_path
 
     def resolve_commit_for_date(self, law_identifier: str, target_date: str) -> str | None:
         """Encuentra el commit más reciente de una ley en o antes de target_date (YYYY-MM-DD)."""
-        clean_id = self._clean_id(law_identifier)
-        file_path = f"ar/{clean_id}.md"
+        file_path, _ = self._resolve_paths(law_identifier)
         output = self._run_git(
             ["log", "-n", "1", f"--until={target_date} 23:59:59", "--format=%H", "--", file_path]
         )
@@ -66,9 +83,8 @@ class LocalGitDiffEngine:
     def get_file_content_at_commit(self, law_identifier: str, commit_sha: str | None = None) -> str:
         """Obtiene el texto íntegro del Markdown de una norma en un commit dado (o HEAD si None)."""
         clean_id = self._clean_id(law_identifier)
-        file_path = f"ar/{clean_id}.md"
+        file_path, disk_path = self._resolve_paths(law_identifier)
         if not commit_sha or commit_sha.upper() == "HEAD":
-            disk_path = os.path.join(self.repo_path, file_path)
             if not os.path.exists(disk_path):
                 raise FileNotFoundError(f"La norma {clean_id} no existe en el repositorio.")
             with open(disk_path, "r", encoding="utf-8", errors="replace") as f:
@@ -88,7 +104,7 @@ class LocalGitDiffEngine:
     ) -> DiffResponse:
         """Calcula las diferencias históricas a nivel de norma o artículo específico con máxima velocidad."""
         clean_id = self._clean_id(law_identifier)
-        file_path = f"ar/{clean_id}.md"
+        file_path, _ = self._resolve_paths(law_identifier)
 
         # 1. Resolver SHAs
         commit_a = sha_a

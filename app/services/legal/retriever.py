@@ -272,14 +272,26 @@ class HybridLegalRetriever:
             return
 
         try:
+            conditions = [
+                (LegalArticle.law_identifier == c.law_identifier) & (LegalArticle.article_number == c.article_number)
+                for c in to_enrich
+            ]
+            if not conditions:
+                return
+
             async with self.sessionmaker() as session:
+                stmt = select(
+                    LegalArticle.law_identifier,
+                    LegalArticle.article_number,
+                    LegalArticle.content,
+                ).where(or_(*conditions))
+                res = await session.execute(stmt)
+                db_rows = res.all()
+                content_map = {f"{row[0]}:{row[1]}": row[2] for row in db_rows if row[2]}
+
                 for cit in to_enrich:
-                    stmt = select(LegalArticle.content).where(
-                        LegalArticle.law_identifier == cit.law_identifier,
-                        LegalArticle.article_number == cit.article_number,
-                    ).limit(1)
-                    res = await session.execute(stmt)
-                    db_content = res.scalar_one_or_none()
+                    key = f"{cit.law_identifier}:{cit.article_number}"
+                    db_content = content_map.get(key)
                     if db_content and len(db_content.strip()) > len(cit.exact_quote or ""):
                         content_str = db_content.strip()
                         cit.exact_quote = (

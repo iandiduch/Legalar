@@ -6,7 +6,7 @@ import logging
 import re
 import socket
 from html.parser import HTMLParser
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from pydantic import BaseModel, Field
@@ -111,6 +111,7 @@ def is_safe_public_url(url: str) -> tuple[bool, str]:
                     or ip_obj.is_link_local
                     or ip_obj.is_reserved
                     or ip_obj.is_multicast
+                    or ip_obj.is_unspecified
                 ):
                     return False, f"Acceso denegado por seguridad (Anti-SSRF): La IP de destino ({ip_str}) es privada o restringida."
             except ValueError:
@@ -208,16 +209,46 @@ async def fetch_web_page_content(
         "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
     }
 
+    current_url = url
+    max_redirects = 3
+    redirect_count = 0
+
     try:
         async with httpx.AsyncClient(
             timeout=timeout_seconds,
-            follow_redirects=True,
-            max_redirects=3,
+            follow_redirects=False,
         ) as client:
-            resp = await client.get(url, headers=headers)
+            while True:
+                resp = await client.get(current_url, headers=headers)
+
+                if resp.is_redirect:
+                    redirect_count += 1
+                    if redirect_count > max_redirects:
+                        return WebPageResult(
+                            success=False,
+                            url=url,
+                            domain=domain,
+                            error="Demasiadas redirecciones consecutivas (máximo 3).",
+                        )
+                    location = resp.headers.get("location")
+                    if not location:
+                        break
+                    next_url = urljoin(current_url, location)
+                    is_safe_redirect, redirect_err = is_safe_public_url(next_url)
+                    if not is_safe_redirect:
+                        logger.warning("Bloqueo Anti-SSRF en redirección hacia '%s': %s", next_url, redirect_err)
+                        return WebPageResult(
+                            success=False,
+                            url=url,
+                            domain=domain,
+                            error=f"Redirección bloqueada por seguridad (Anti-SSRF): {redirect_err}",
+                        )
+                    current_url = next_url
+                    continue
+                break
 
             if resp.status_code >= 400:
-                logger.info("El sitio web respondió con código HTTP %d para URL: %s", resp.status_code, url)
+                logger.info("El sitio web respondió con código HTTP %d para URL: %s", resp.status_code, current_url)
                 return WebPageResult(
                     success=False,
                     url=url,

@@ -103,9 +103,10 @@ async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[st
         return {"intent": QueryIntent.LEGAL_CONSULTATION}
 
     try:
+        recent_messages = state["messages"][-6:] if len(state["messages"]) > 6 else state["messages"]
         messages = [
             SystemMessage(content=ROUTER_PROMPT),
-            *state["messages"],
+            *recent_messages,
         ]
         decision: RouterDecision = await invoke_structured_with_retry(
             llm, RouterDecision, ROUTER_PROMPT, messages, max_attempts=settings.STRUCTURED_OUTPUT_MAX_ATTEMPTS if settings else 2
