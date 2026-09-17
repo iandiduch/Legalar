@@ -31,10 +31,11 @@ WORKDIR /app
 COPY app/ app/
 COPY scripts/ scripts/
 COPY data/ data/
-RUN git clone https://github.com/legalize-dev/legalize-ar.git repo_legalize_ar
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
-
-RUN mkdir -p data/uploads && chown -R appuser:appuser /app
+RUN mkdir -p data/uploads repo_legalize_ar \
+    && chmod +x /app/docker-entrypoint.sh \
+    && chown -R appuser:appuser /app
 
 USER appuser
 
@@ -43,4 +44,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request as u, sys; sys.exit(0 if u.urlopen('http://localhost:8000/api/v1/health', timeout=3).status == 200 else 1)"
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:asgi_app", "--host", "0.0.0.0", "--port", "8000"]

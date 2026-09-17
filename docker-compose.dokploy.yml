@@ -46,6 +46,7 @@ services:
         condition: service_healthy
     volumes:
       - uploads_data:/app/data/uploads
+      - legalize_repo_data:/app/repo_legalize_ar
 
   api:
     build:
@@ -71,6 +72,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - uploads_data:/app/data/uploads
+      - legalize_repo_data:/app/repo_legalize_ar
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -101,6 +103,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - uploads_data:/app/data/uploads
+      - legalize_repo_data:/app/repo_legalize_ar
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -124,6 +127,7 @@ volumes:
   redis_data:
   phoenix_data:
   uploads_data:
+  legalize_repo_data:
 
 networks:
   dokploy-network:
