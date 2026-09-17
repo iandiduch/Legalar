@@ -127,12 +127,12 @@ async def legal_chat_endpoint(
     try:
         final_state = await asyncio.wait_for(
             app_graph.ainvoke(initial_state, config=config),
-            timeout=35.0,
+            timeout=85.0,
         )
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="La consulta superó el tiempo máximo de procesamiento (35s). Por favor formule una pregunta más específica.",
+            detail="La consulta superó el tiempo máximo de procesamiento (85s). Por favor formule una pregunta más específica.",
         )
     except Exception as exc:
         raise HTTPException(
@@ -158,8 +158,8 @@ async def legal_chat_endpoint(
 
 @router.post(
     "/chat/stream",
-    summary="Consulta Jurídica con Streaming de Respuesta Final",
-    description="Ejecuta la orquestación multi-agente internamente y transmite la respuesta final validada en tiempo real mediante Server-Sent Events (SSE).",
+    summary="Consulta Jurídica con Streaming de Respuesta Final y Fases en Vivo",
+    description="Ejecuta la orquestación multi-agente emitiendo fases de progreso en tiempo real y transmite la respuesta final validada mediante Server-Sent Events (SSE).",
 )
 async def legal_chat_stream_endpoint(
     request: LegalChatRequest,
@@ -178,8 +178,11 @@ async def legal_chat_stream_endpoint(
             logger.info("Cliente desconectado antes de iniciar streaming (%s)", thread_id)
             return
 
-        # Enviar comentario SSE ': ping' inmediato para que proxies (Cloudflare/Dokploy/Nginx) no corten la conexión
+        # 1. Enviar comentario SSE ': ping' inmediato para que proxies (Cloudflare/Dokploy/Nginx) abran el canal
         yield ": ping\n\n"
+
+        # 2. Notificar fase inicial de enrutamiento al usuario
+        yield f"event: status\ndata: {json.dumps({'stage': 'routing', 'message': 'Analizando consulta e identificando materia jurídica...'})}\n\n"
 
         llm = build_chat_model(settings)
         app_graph = build_legal_graph(checkpointer=None)
@@ -210,19 +213,85 @@ async def legal_chat_stream_endpoint(
             }
         }
 
+        event_queue: asyncio.Queue = asyncio.Queue()
+        is_done = False
+        final_state: dict = dict(initial_state)
+
+        async def run_graph_task():
+            try:
+                async for chunk in app_graph.astream(initial_state, config=config, stream_mode="updates"):
+                    for node_name, node_update in chunk.items():
+                        final_state.update(node_update)
+
+                        if node_name == "router":
+                            intent = final_state.get("intent")
+                            if intent == QueryIntent.VERSION_DIFF:
+                                await event_queue.put(("status", {"stage": "diff", "message": "Cotejando versiones normativas en el repositorio legal..."}))
+                            elif intent == QueryIntent.DOCUMENT_ANALYSIS:
+                                await event_queue.put(("status", {"stage": "analyzing", "message": "Examinando validez y cláusulas contractuales..."}))
+                            elif intent == QueryIntent.URL_FACT_CHECK:
+                                await event_queue.put(("status", {"stage": "fact_check", "message": "Extrayendo contenido del enlace y cotejando con normativa..."}))
+                            else:
+                                await event_queue.put(("status", {"stage": "retrieval", "message": "Consultando legislación y corpus normativo oficial..."}))
+
+                        elif node_name == "legal_agent":
+                            await event_queue.put(("status", {"stage": "validating", "message": "Auditando vigencia actual de leyes y citas oficiales..."}))
+
+                        elif node_name == "document_analyzer":
+                            await event_queue.put(("status", {"stage": "validating", "message": "Auditando vigencia y consistencia legal de las cláusulas..."}))
+
+                await event_queue.put(("DONE", None))
+            except Exception as exc:
+                logger.error("Error en ejecución de astream del agente legal: %s", exc)
+                await event_queue.put(("ERROR", exc))
+
+        async def heartbeat_task():
+            while not is_done:
+                await asyncio.sleep(4.5)
+                if not is_done:
+                    await event_queue.put(("ping", None))
+
+        graph_runner = asyncio.create_task(run_graph_task())
+        pinger = asyncio.create_task(heartbeat_task())
+
+        start_wait = time.time()
+        max_duration = 85.0  # Ventana holgada de 85s para análisis exhaustivo y validación completa
+
         try:
-            final_state = await asyncio.wait_for(
-                app_graph.ainvoke(initial_state, config=config),
-                timeout=35.0,
-            )
+            while True:
+                elapsed = time.time() - start_wait
+                remaining = max_duration - elapsed
+                if remaining <= 0:
+                    raise asyncio.TimeoutError("Timeout global superado")
+
+                item_type, item_data = await asyncio.wait_for(event_queue.get(), timeout=min(remaining, 5.0))
+
+                if await http_request.is_disconnected():
+                    logger.info("Cliente desconectado durante ejecución del grafo (%s)", thread_id)
+                    return
+
+                if item_type == "ping":
+                    yield ": ping\n\n"
+                elif item_type == "status":
+                    yield f"event: status\ndata: {json.dumps(item_data)}\n\n"
+                elif item_type == "DONE":
+                    break
+                elif item_type == "ERROR":
+                    raise item_data
+
         except asyncio.TimeoutError:
-            logger.warning("Timeout superado en ejecución del agente legal para thread %s", thread_id)
-            yield f"event: error\ndata: {json.dumps({'error': 'La consulta demoró más de lo esperado en resolverse. Por favor reintenta con una formulación más específica.'})}\n\n"
+            logger.warning("Timeout de 85s superado en grafo legal para thread %s", thread_id)
+            yield f"event: error\ndata: {json.dumps({'error': 'La consulta demoró más de lo esperado en resolverse exhaustivamente. Por favor reintenta con una formulación más específica.'})}\n\n"
             return
         except Exception as exc:
-            logger.error("Error en ejecución del agente legal: %s", exc)
+            logger.error("Error en flujo SSE del agente legal: %s", exc)
             yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
             return
+        finally:
+            is_done = True
+            pinger.cancel()
+            if not graph_runner.done():
+                graph_runner.cancel()
 
         if await http_request.is_disconnected():
             logger.info("Cliente desconectado tras finalización del grafo (%s)", thread_id)
@@ -245,10 +314,10 @@ async def legal_chat_stream_endpoint(
             else ({"is_valid": True, "all_norms_in_force": True, "unsupported_claims": [], "warning_notes": []})
         )
 
-        # 1. Notificar inicio de la respuesta final
+        # 3. Notificar inicio de la respuesta final validada
         yield f"event: start\ndata: {json.dumps({'thread_id': thread_id})}\n\n"
 
-        # 2. Transmitir tokens de la respuesta final validada
+        # 4. Transmitir tokens de la respuesta final
         tokens = re.findall(r"\S+|\s+", final_answer)
         for token in tokens:
             if await http_request.is_disconnected():
@@ -257,7 +326,7 @@ async def legal_chat_stream_endpoint(
             yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
             await asyncio.sleep(0.008)
 
-        # 3. Notificar finalización con metadatos completos y citas oficiales
+        # 5. Notificar finalización con metadatos completos y citas oficiales
         duration = time.time() - start_time
         done_payload = {
             "thread_id": thread_id,
