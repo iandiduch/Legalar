@@ -43,6 +43,12 @@ INGESTION_JOBS_TOTAL = Counter(
     ["status", "file_type"],
 )
 
+ANALYSIS_JOBS_TOTAL = Counter(
+    "analysis_jobs_total",
+    "Total de jobs de auditoría documental procesados",
+    ["status", "document_type"],
+)
+
 AGENT_EXECUTIONS_TOTAL = Counter(
     "agent_executions_total",
     "Total de ejecuciones por agente en el grafo",

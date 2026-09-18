@@ -499,6 +499,7 @@ async def analyze_document_endpoint(
 async def get_analysis_status(
     analysis_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
+    _rate_limit: Annotated[None, Depends(check_legal_rate_limit)] = None,
 ) -> AnalysisJobStatusResponse:
     job = await db.get(AnalysisJob, analysis_id)
     if job is None:
@@ -532,6 +533,7 @@ async def stream_analysis_events(
     http_request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    _rate_limit: Annotated[None, Depends(check_legal_rate_limit)] = None,
 ) -> StreamingResponse:
     job = await db.get(AnalysisJob, analysis_id)
     if job is None:

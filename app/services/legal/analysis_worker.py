@@ -23,7 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.agents.legal.graph import build_legal_graph
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
+from app.core.metrics import ANALYSIS_JOBS_TOTAL
 from app.core.redis import build_redis_client
+from app.core.telemetry import setup_telemetry
 from app.db.models_orm import AnalysisJob
 from app.db.session import build_engine, build_sessionmaker
 from app.domain.models import ConfidenceLevel, QueryIntent
@@ -43,6 +45,7 @@ _CLEANUP_INTERVAL_SECONDS = 300  # Cada 5 minutos
 
 async def run_worker(settings: Settings) -> None:
     """Bucle principal de ejecución del worker de análisis."""
+    setup_telemetry(settings)
     engine = build_engine(settings)
     sessionmaker = build_sessionmaker(engine)
     redis = build_redis_client(settings)
@@ -169,6 +172,7 @@ async def recover_orphaned_analysis_jobs(
                 job.error_message = (
                     f"Se superó el tiempo límite ({settings.ANALYSIS_JOB_TIMEOUT_MINUTES} min) y reintentos máximos."
                 )
+                ANALYSIS_JOBS_TOTAL.labels(status="FAILED", document_type=job.document_type).inc()
                 logger.error("analysis_worker.orphaned_job_failed", extra={"analysis_id": str(job.analysis_id)})
 
         if orphaned_jobs:
@@ -282,6 +286,7 @@ async def _process_analysis_job(
         job.completed_at = datetime.now(UTC)
         await session.commit()
 
+        ANALYSIS_JOBS_TOTAL.labels(status="COMPLETED", document_type=job.document_type).inc()
         logger.info("analysis_worker.job_completed", extra={"analysis_id": str(job.analysis_id), "duration": duration})
 
         # Notificar evento 'done' con el dictamen estructurado completo
@@ -301,6 +306,8 @@ async def _process_analysis_job(
         job.error_message = str(exc)
         job.completed_at = datetime.now(UTC)
         await session.commit()
+
+        ANALYSIS_JOBS_TOTAL.labels(status="FAILED", document_type=job.document_type).inc()
 
         # Notificar evento 'error'
         await redis.publish(
