@@ -338,6 +338,7 @@ class HybridLegalRetriever:
                         "status": meta.get("status", "in_force"),
                         "infoleg_url": meta.get("infoleg_url"),
                         "commit_sha": meta.get("commit_sha"),
+                        "reform_quality": meta.get("reform_quality"),
                     }
                 )
             return results
@@ -359,7 +360,12 @@ class HybridLegalRetriever:
         # Procesar léxico
         for rank_idx, (art, law, _) in enumerate(lexical):
             key = f"{art.law_identifier}:{art.article_number}"
-            score = 1.0 / (rrf_constant + rank_idx + 1)
+            base_score = 1.0 / (rrf_constant + rank_idx + 1)
+
+            # Ponderar según calidad de consolidación (penalizar normas con reformas pendientes 'bootstrap-only')
+            law_quality = getattr(law, "reform_quality", None) if law else None
+            quality_factor = 0.85 if law_quality == "bootstrap-only" else (1.10 if law_quality in ("clean", "consolidated") else 1.0)
+            score = base_score * quality_factor
             scores[key] = scores.get(key, 0.0) + score
 
             raw_content = (art.content or "").strip()
@@ -392,7 +398,11 @@ class HybridLegalRetriever:
             if not law_id or not art_num:
                 continue
             key = f"{law_id}:{art_num}"
-            score = 1.0 / (rrf_constant + rank_idx + 1)
+            base_score = 1.0 / (rrf_constant + rank_idx + 1)
+
+            dense_quality = match.get("reform_quality")
+            quality_factor = 0.85 if dense_quality == "bootstrap-only" else (1.10 if dense_quality in ("clean", "consolidated") else 1.0)
+            score = base_score * quality_factor
             scores[key] = scores.get(key, 0.0) + score
 
             raw_dense = (match.get("content") or "").strip()

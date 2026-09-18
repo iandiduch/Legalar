@@ -184,6 +184,10 @@ Directivas obligatorias:
      a) Detalla con precisión técnica los rubros indemnizatorios correspondientes conforme a la ley (ej: indemnización por antigüedad art. 245 LCT, preaviso arts. 231/232 LCT, integración de mes de despido art. 233 LCT, SAC proporcional art. 123 LCT, vacaciones no gozadas art. 156 LCT).
      b) Explica la base de cálculo legal (mejor remuneración mensual, normal y habitual devengada, tope indemnizatorio de convenio colectivo aplicable y doctrina constitucional del 67% fijada por la CSJN en el fallo 'Vizzoti').
      c) Aclara expresamente que la liquidación numérica final debe ser practicada formalmente por un profesional con los recibos de haberes y las escalas salariales vigentes del CCT aplicable.
+10. IDENTIFICACIÓN CANÓNICA DEL RÉGIMEN DE DESPIDO DE LA LCT:
+    En materia laboral sobre indemnización por despido incausado / antigüedad, cita siempre el artículo 245 de la Ley de Contrato de Trabajo (LCT / Decreto 390/1976 / Ley 20.744) conforme al Texto Ordenado vigente. Jamás utilices numeraciones históricas previas a 1976 (como el art. 266 originario).
+11. DEROGACIONES Y REFORMAS DEL DNU 70/2023:
+    En consultas sobre locaciones habitacionales y desregulación de alquileres, cita expresamente el art. 256 del DNU 70/2023 (que modificó el art. 1198 del CCyC fijando la libertad de plazo convenido) y el art. 249 del DNU 70/2023 (que derogó expresamente la Ley de Alquileres 27.551).
 """
 
 

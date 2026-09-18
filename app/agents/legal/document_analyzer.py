@@ -58,7 +58,7 @@ async def document_analyzer_node(
             logger.warning("No se pudieron recuperar citas para auditoría documental: %s", exc)
 
     evidence_summary = (
-        "\n".join(f"- {c.law_identifier} Art. {c.article_number}: {c.exact_quote[:200]}..." for c in citations)
+        "\n".join(f"- {c.law_identifier} Art. {c.article_number}: {(c.exact_quote or '').strip()[:3500]}" for c in citations)
         if citations
         else "Sin citas normativas directas precargadas."
     )

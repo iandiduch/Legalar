@@ -30,15 +30,15 @@ respecto de la evidencia normativa.
 Criterios de validación:
 1. ¿Los artículos citados existen y corresponden a la ley señalada?
 2. ¿Se afirma la vigencia de una norma derogada o modificada (ej: referirse a la Ley de Alquileres 27.551 como vigente cuando fue derogada por el DNU 70/2023)?
-3. ¿La respuesta agregó afirmaciones contundentes que no figuran en la evidencia legal?
+3. ¿La respuesta agregó afirmaciones contundentes que contradigan la ley o que inventen artículos inexistentes? No califiques como 'no sustentadas' precisiones dogmáticas, plazos ni rubros que se desprendan de los artículos provistos en la evidencia (ej: Art. 11 Ley 24.240 o Art. 245 LCT).
 4. Si la respuesta es jurídicamente sólida, refina la redacción para garantizar máxima claridad profesional.
 5. REGLA ESTRICTA DE ESTILO: La respuesta final debe ser directa y en Markdown. PROHIBIDO incluir saludos de carta ("Estimado/a", "Colega") o firmas/despedidas ("Atentamente", "Quedo a su disposición").
 6. PRESERVACIÓN DE PREGUNTAS DE ACLARACIÓN: Si el borrador contiene una sección de preguntas de aclaración o datos faltantes para precisar el caso (por ejemplo, titulada '### Para poder precisar tu caso:'), DEBES PRESERVARLA ÍNTEGRAMENTE al final de tu respuesta sintetizada, sin omitir ninguna de las preguntas.
 
 IMPORTANTE sobre el campo 'synthesized_final_answer':
-- Este campo debe ser SIEMPRE una respuesta jurídica directa al usuario, nunca un meta-comentario.
-- Si la respuesta es válida: proporciona la versión mejorada, pulida y clara.
-- Si la evidencia es insuficiente para validar completamente: proporciona la mejor versión posible basada en el borrador y tu conocimiento jurídico, indicando si algún aspecto requiere consulta profesional.
+- Este campo debe ser SIEMPRE una respuesta jurídica directa, completa y concluyente para el usuario, nunca un meta-comentario.
+- Si la respuesta es válida: proporciona la versión mejorada, pulida, técnicamente exacta y fundamentada.
+- Si la respuesta requiere ajustes de vigencia: corrígela directamente y entrega en 'synthesized_final_answer' la versión jurídicamente exacta y depurada.
 - NUNCA escribas en este campo frases como 'la respuesta no está en la evidencia' o 'no puedo validar'. Eso va en 'unsupported_claims' o 'warning_notes'.
 """
 
@@ -71,8 +71,9 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
 
     evidence_lines = []
     for c in citations:
+        clean_quote = (c.exact_quote or "").strip()[:3500]
         evidence_lines.append(
-            f"- {c.law_identifier} Art. {c.article_number}: estado='{c.status}', texto='{c.exact_quote[:200]}'"
+            f"- {c.law_identifier} Art. {c.article_number}: estado='{c.status}', texto='{clean_quote}'"
         )
     evidence_summary = "\n".join(evidence_lines) if evidence_lines else "Sin citas asociadas."
 
@@ -96,35 +97,24 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
         )
         synthesized = (check.synthesized_final_answer or "").strip()
 
-        # Solo usamos la versión sintetizada del validador cuando:
-        # 1. El validador marcó la respuesta como válida, Y
-        # 2. La síntesis es sustantiva (>= 40 chars) - no es un mensaje de error/meta-comentario
-        # Si is_valid=False, preservamos el borrador del agente legal; los problemas
-        # quedan registrados en validation_result.unsupported_claims y warning_notes.
-        if check.is_valid and len(synthesized) >= 40:
+        # Priorizar la versión sintetizada y depurada del validador si es sustantiva (>= 40 chars)
+        if len(synthesized) >= 40:
             final_answer = synthesized
-        elif not check.is_valid:
-            logger.info(
-                "Validador marcó respuesta como inválida para thread '%s'; incorporando advertencias de auditoría. Problemas: %s",
-                state.get("thread_id", ""),
-                check.unsupported_claims,
-            )
-            warnings = []
-            if check.warning_notes:
-                warnings.extend(check.warning_notes)
-            if check.unsupported_claims:
-                warnings.extend(f"Observación de sustento: {c}" for c in check.unsupported_claims)
-
-            warning_block = ""
-            if warnings:
-                warning_bullets = "\n".join(f"- ⚠️ {w}" for w in warnings)
-                warning_block = f"\n\n> [!WARNING]\n> **Observaciones de Auditoría Jurídica:**\n{warning_bullets}\n"
-
-            base_answer = synthesized if (synthesized and len(synthesized) >= 40) else draft
-            final_answer = base_answer + warning_block
         else:
             logger.info("Validador devolvió síntesis corta (%d chars); preservando borrador original.", len(synthesized))
             final_answer = draft
+
+        # Si el validador determinó que la respuesta no es válida, adjuntar observaciones de auditoría
+        if not check.is_valid:
+            notes = check.warning_notes + check.unsupported_claims
+            if notes and "Observaciones de Auditoría Jurídica" not in final_answer:
+                bullets = "\n".join(f"- ⚠️ {n}" for n in notes)
+                final_answer = f"{final_answer}\n\n> [!WARNING]\n> **Observaciones de Auditoría Jurídica:**\n{bullets}\n"
+        elif check.warning_notes:
+            vigencia_warnings = [w for w in check.warning_notes if "derog" in w.lower() or "vigente" in w.lower() or "reforma" in w.lower()]
+            if vigencia_warnings and not any(w in final_answer for w in vigencia_warnings):
+                warning_bullets = "\n".join(f"- ⚠️ {w}" for w in vigencia_warnings)
+                final_answer = f"{final_answer}\n\n> [!NOTE]\n> **Estado de Vigencia Normativa:**\n{warning_bullets}\n"
 
         val_summary = LegalValidationSummary(
             is_valid=check.is_valid,

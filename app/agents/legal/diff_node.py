@@ -111,11 +111,18 @@ async def diff_node(state: LegalAgentState, config: RunnableConfig) -> dict[str,
             diff_response=diff_response,
             citizen_explanation=None,
         )
-        explanation = (
-            f"### Cotejo Normativo Oficial: {law_id}" + (f" Art. {art_num}" if art_num else "") + "\n\n"
-            f"- **Resultado del análisis**: No se encontraron modificaciones textuales en el artículo analizado.\n"
-            f"- **Estado de redacción**: El texto oficial se mantiene idéntico en el registro normativo consolidado."
-        )
+        if "no se pudo recuperar" in unified_diff_text.lower():
+            explanation = (
+                f"### Cotejo Normativo Oficial: {law_id}" + (f" Art. {art_num}" if art_num else "") + "\n\n"
+                f"- **Resultado del análisis**: No se pudo recuperar el diff de la norma en el repositorio local o remoto.\n"
+                f"- **Sugerencia**: Podés consultar el régimen legal aplicable formulando tu pregunta directa para el agente legal."
+            )
+        else:
+            explanation = (
+                f"### Cotejo Normativo Oficial: {law_id}" + (f" Art. {art_num}" if art_num else "") + "\n\n"
+                f"- **Resultado del análisis**: No se encontraron modificaciones textuales en el artículo analizado.\n"
+                f"- **Estado de redacción**: El texto oficial se mantiene idéntico en el registro normativo consolidado."
+            )
         return {
             "diff_result": diff_response,
             "diff_data": diff_data,

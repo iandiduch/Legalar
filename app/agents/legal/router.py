@@ -16,9 +16,19 @@ logger = logging.getLogger(__name__)
 
 
 class RouterDecision(BaseModel):
-    intent: QueryIntent = Field(description="Intención clasificada de la consulta del usuario")
+    intent: QueryIntent = Field(
+        description=(
+            "Intención clasificada. Debe ser 'version_diff' ÚNICAMENTE si el usuario solicita explícitamente ver el diff técnico, "
+            "comparación de versiones o cotejo de redacciones textuales previas vs vigentes. "
+            "Si el usuario formula una pregunta sustantiva sobre leyes, plazos, indemnizaciones o reformas "
+            "('¿cuál es el plazo...?', '¿qué modificó el DNU...?', '¿cómo se calcula...?'), DEBE SER 'legal_consultation'."
+        )
+    )
     law_identifier_hint: str | None = Field(default=None, description="Norma mencionada explícitamente (ej: 'LEY-26994')")
-    article_hint: str | None = Field(default=None, description="Artículo mencionado (ej: '1198')")
+    article_hint: str | None = Field(
+        default=None,
+        description="Número de artículo específico si fue mencionado explícitamente (ej: '1198', '245', '14 bis'). Null si la consulta es conceptual o no refiere a un artículo puntual.",
+    )
     wants_explanation: bool = Field(
         default=False,
         description="Aplica ÚNICAMENTE si intent='version_diff': True si el usuario solicita explicación ciudadana de la reforma. False si no pide pedagogía o si intent no es version_diff.",
@@ -32,11 +42,12 @@ Tu objetivo es determinar con rigor qué tipo de tarea solicita el usuario segú
 1. 'legal_consultation':
 - Pregunta jurídica sustantiva, doctrinaria, interpretativa o consulta sobre el régimen legal argentino vigente (penal, procesal, laboral, civil, comercial, administrativo, etc.).
 - REGLA DE CONTINUIDAD CONVERSACIONAL Y REPREGUNTAS: Si el usuario realiza una repregunta de incomprensión, aclaración o simplificación (ej: "no entendí", "no entendi nomas", "podes explicarlo mejor", "explicamelo en criollo", "¿por qué?", "¿cómo es eso?") sobre una respuesta jurídica previa del asistente, la intención DEBE SER 'legal_consultation'. El agente legal tomará su respuesta previa y la explicará con mayor claridad y pedagogía ciudadana.
+- CONSULTAS SOBRE REFORMAS O LEYES MODIFICADAS: Preguntas sobre qué modificó una ley o decreto, plazos o régimen vigente (ej: "¿cuál es el plazo de las locaciones habitacionales y qué modificó el DNU 70/2023?", "¿qué modificaciones introdujo el DNU 70/2023 sobre X?", "¿sigue vigente la ley de alquileres?", "¿cómo quedaron las indemnizaciones?") SON CONSULTAS JURÍDICAS SUSTANTIVAS ('legal_consultation'). El agente legal recuperará los artículos y reformas para fundamentar y explicar el régimen legal aplicable.
 
 2. 'version_diff':
-- ÚNICAMENTE cuando el usuario solicita explícitamente contrastar redacciones textuales, ver un diff de reformas o comparar la redacción previa vs vigente de un artículo o ley (ej: "¿Qué modificó la reforma en LEY-24013 artículo 153?", "mostrame el diff del artículo 92 ter de la LCT", "redacción anterior vs vigente").
-- O cuando realiza una repregunta de incomprensión ("no entendí", "¿qué cambió?") ÚNICAMENTE SI el mensaje inmediatamente anterior del asistente fue una tabla o bloque de diff normativo.
-- Si la consulta NO menciona reformas ni comparativas textuales y el mensaje anterior NO fue un diff, NUNCA clasifiques como 'version_diff'.
+- ÚNICAMENTE Y EXCLUSIVAMENTE cuando el usuario solicita explícitamente ver una comparación técnica de código/texto Git, un diff línea por línea o una tabla visual de redacción previa vs redacción vigente (ej: "mostrame el diff del art 1198", "ver diff de LEY-24013", "comparar texto viejo vs nuevo", "diff textual", "cotejo de redacción").
+- Si el usuario formula una pregunta sustantiva ("¿cuál es el plazo...?", "¿cómo se calcula...?", "¿qué modificó el DNU...?", "¿en qué consiste la reforma...?", "¿sigue vigente...?"), ESTO ES OBLIGATORIAMENTE 'legal_consultation', NUNCA 'version_diff'.
+- 'article_hint': Debe ser ÚNICAMENTE el número o identificador del artículo (ej: '1198', '245', '14 bis'). PROHIBIDO incluir palabras, temas o frases descriptivas en article_hint (ej: NUNCA 'locaciones habitacionales', NUNCA 'prescripción y desregulación'). Si no hay un número de artículo explícito, article_hint debe ser null.
 
 3. 'document_analysis': El usuario proporciona un texto de contrato, convenio, carta documento o pide auditar cláusulas.
 4. 'url_fact_check': El usuario incluye un enlace o link web (noticia, publicación) para contrastar su veracidad con la ley.
@@ -46,14 +57,14 @@ Tu objetivo es determinar con rigor qué tipo de tarea solicita el usuario segú
 - Mensajes que NO plantean un caso, norma, hecho, problema ni consulta jurídica.
 
 Reglas para 'wants_explanation' (Aplica solo cuando intent='version_diff'):
-- wants_explanation = False: El usuario solo pide el diff/comparativa sin pedir pedagogía (ej: "diff del art 1198", "qué cambió en LEY-26994 art 1222").
-- wants_explanation = True: El usuario pide explícita o implícitamente que además le expliquen la reforma en lenguaje sencillo (ej: "explicame qué cambió", "qué significa en la práctica").
+- wants_explanation = False: El usuario solo pide el diff/comparativa sin pedir pedagogía (ej: "diff del art 1198", "cotejo textual de LEY-26994 art 1222").
+- wants_explanation = True: El usuario pide explícita o implícitamente que además le expliquen la reforma en lenguaje sencillo (ej: "explicame qué cambió en el diff", "qué significa este cambio de redacción").
 - Si intent != 'version_diff', wants_explanation debe ser False obligatoriamente.
 
 Identificadores de normas canónicas en el repositorio:
 - Constitución Nacional de la República Argentina -> LEY-24430
 - Código Civil y Comercial de la Nación (CCyC) -> LEY-26994
-- Ley de Contrato de Trabajo (LCT / T.O. 1976 vigente con Art. 245) -> DEC-390-1976 (o LEY-20744)
+- Ley de Contrato de Trabajo (LCT / T.O. Decreto 390/1976 con Art. 245) -> DEC-390-1976 (o LEY-20744)
 - Código Procesal Penal de la Nación -> LEY-23984
 - Código Penal de la Nación -> LEY-11179
 - Ley General de Sociedades -> LEY-19550
@@ -109,11 +120,11 @@ async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[st
             }
 
     if not llm:
-        # Fallback determinista por palabras clave
+        # Fallback determinista cuando no hay cliente LLM configurado
         q = state["query"].lower().strip()
         if q in ("hola", "buenas", "buen dia", "buen día", "buenas tardes", "buenas noches", "gracias", "muchas gracias", "chau", "hola!"):
             return {"intent": QueryIntent.GENERAL_INQUIRY}
-        if "qué cambió" in q or "que cambio" in q or "reforma" in q or "redacción anterior" in q:
+        if "diff" in q or "cotejo textual" in q:
             return {"intent": QueryIntent.VERSION_DIFF}
         return {"intent": QueryIntent.LEGAL_CONSULTATION}
 
@@ -126,6 +137,14 @@ async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[st
         decision: RouterDecision = await invoke_structured_with_retry(
             llm, RouterDecision, ROUTER_PROMPT, messages, max_attempts=settings.STRUCTURED_OUTPUT_MAX_ATTEMPTS if settings else 2
         )
+
+        # Saneamiento estructural: si el modelo extrajo una frase descriptiva en vez de un artículo puntual, limpiarla
+        if decision.article_hint:
+            cleaned_hint = decision.article_hint.strip()
+            if len(cleaned_hint.split()) > 3 or not any(char.isdigit() for char in cleaned_hint):
+                logger.info("router_node: descartando article_hint no numérico/descriptivo: %r", cleaned_hint)
+                decision.article_hint = None
+
         diff_params = dict(state.get("diff_request_params") or {})
         if decision.law_identifier_hint:
             diff_params["law_identifier"] = decision.law_identifier_hint
