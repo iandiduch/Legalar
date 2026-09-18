@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/LangGraph-Legal--Agent-orange?style=for-the-badge&logo=langchain&logoColor=white" alt="LangGraph" />
   <img src="https://img.shields.io/badge/OpenRouter%20%2F%20OpenAI-Flexible_Models-412991?style=for-the-badge&logo=openai&logoColor=white" alt="LLM" />
   <img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge&logo=apache&logoColor=white" alt="Apache 2.0" />
-  <img src="https://img.shields.io/badge/Tests-42_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
+  <img src="https://img.shields.io/badge/Tests-51_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
 </p>
 
 > 🌐 **Chat en Producción & Aplicación Web**: [https://legalar.onys.app](https://legalar.onys.app)
@@ -41,7 +41,7 @@ CHATBOT-LEGALIZE/
 │   │   └── legal/             # DTOs de chat, citas normativas (LegalCitation), diffs y auditoría de contratos
 │   ├── db/                    # Persistencia: SQLAlchemy 2.0 async (asyncpg), modelos legales (LegalLaw, LegalArticle, etc.)
 │   ├── services/              # Casos de uso y lógica de negocio:
-│   │   ├── legal/             # Parser InfoLEG, Git diff local, query expander relacional, web reader seguro, file parser y RAG retriever
+│   │   ├── legal/             # Parser InfoLEG, Git diff local, query expander relacional, web reader seguro, file parser, retriever y analysis worker
 │   │   ├── llm_factory.py     # Factoría unificada con soporte automático para OpenAI y OpenRouter
 │   │   ├── rag_service.py     # Cliente AsyncPinecone y generador de embeddings vectoriales
 │   │   └── prompt_manager.py  # Versionado dinámico de directivas de agentes en base de datos
@@ -50,9 +50,9 @@ CHATBOT-LEGALIZE/
 │   └── api/                   # FastAPI Gateway: routers v1 (/legal, /ingest, /prompts, /admin, /health), middlewares y auth
 ├── data/                      # Almacenamiento local: golden_set.json y evaluation_results.json
 ├── scripts/                   # CLI de inicialización (init_db), bootstrap legal (legal_bootstrap) y evaluación (evaluate_rag)
-├── tests/                     # Suite de pruebas automatizadas: unitarias (42 tests), integración, seguridad y persistencia
+├── tests/                     # Suite de pruebas automatizadas: unitarias (51 tests), integración, seguridad y persistencia
 ├── Dockerfile                 # Contenedor multi-stage optimizado para Dokploy (con git y python 3.12)
-├── docker-compose.yml         # Orquestación local (FastAPI, PostgreSQL 16, Redis, Phoenix opcional)
+├── docker-compose.yml         # Orquestación local (FastAPI, PostgreSQL 16, Redis, Workers y Phoenix opcional)
 ├── pyproject.toml             # Configuración unificada de herramientas de desarrollo
 └── requirements.txt           # Dependencias fijadas para producción
 ```
@@ -256,7 +256,6 @@ Documentación Swagger interactiva: `http://localhost:8000/docs`.
 ### 💻 Desarrollo Local Rápido (Sin Docker)
 
 ```bash
-# Iniciar la API FastAPI
 uvicorn app.main:asgi_app --host 127.0.0.1 --port 8000 --reload
 ```
 
