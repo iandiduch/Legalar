@@ -17,7 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.legal.graph import build_legal_graph
 from app.agents.legal.state import LegalAgentState
 from app.core.config import Settings
-from app.core.security import check_legal_rate_limit, require_scope
+from app.core.idempotency import (
+    IDEMPOTENCY_HEADER,
+    check_or_acquire_idempotency,
+    generate_idempotency_fingerprint,
+    release_idempotency_lock,
+    save_idempotency_result,
+)
+from app.core.security import _client_ip, check_legal_rate_limit, require_scope
 from app.db.session import get_db, get_sessionmaker
 from app.domain.models import ApiKeyScope, ConfidenceLevel, FileType, QueryIntent
 from app.schemas.legal.chat import LegalChatRequest, LegalChatResponse, LegalValidationSummary
@@ -66,7 +73,31 @@ async def legal_chat_endpoint(
     start_time = time.time()
     thread_id = request.thread_id or str(uuid.uuid4())
 
-    llm = build_chat_model(settings)
+    # 1. Idempotencia y deduplicación con Redis (anti doble cobro de tokens)
+    redis_client = getattr(http_request.app.state, "redis_client", None)
+    idempotency_header = http_request.headers.get(IDEMPOTENCY_HEADER)
+    idempotency_key = idempotency_header or generate_idempotency_fingerprint(
+        client_ip=_client_ip(http_request),
+        path=http_request.url.path,
+        body_str=f"{request.query}|{thread_id}",
+    )
+
+    if settings.IDEMPOTENCY_ENABLED and redis_client:
+        status_idem, cached_payload = await check_or_acquire_idempotency(
+            redis=redis_client,
+            idempotency_key=idempotency_key,
+            ttl_seconds=settings.IDEMPOTENCY_TTL_SECONDS,
+        )
+        if status_idem == "COMPLETED" and cached_payload:
+            return LegalChatResponse(**cached_payload)
+        elif status_idem == "PROCESSING":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Una consulta idéntica ya se encuentra en procesamiento. Por favor aguarde.",
+            )
+
+    # 2. Reutilizar singleton de LLM de app.state en lugar de reconstruir en cada llamada
+    llm = getattr(http_request.app.state, "llm_client", None) or build_chat_model(settings)
 
     app_graph = getattr(http_request.app.state, "compiled_graph", None) or build_legal_graph(checkpointer=None)
 
@@ -122,6 +153,10 @@ async def legal_chat_endpoint(
             detail="La consulta superó el tiempo máximo de procesamiento (85s). Por favor formule una pregunta más específica.",
         )
     except Exception as exc:
+        if settings.IDEMPOTENCY_ENABLED and redis_client:
+            await release_idempotency_lock(redis_client, idempotency_key)
+        if isinstance(exc, HTTPException):
+            raise exc
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Fallo en la ejecución del Agente Legal: {exc}",
@@ -130,7 +165,7 @@ async def legal_chat_endpoint(
     duration = time.time() - start_time
     val_res = final_state.get("validation_result") or LegalValidationSummary(is_valid=True)
 
-    return LegalChatResponse(
+    chat_response = LegalChatResponse(
         thread_id=thread_id,
         query=request.query,
         intent=final_state.get("intent", QueryIntent.LEGAL_CONSULTATION),
@@ -141,6 +176,16 @@ async def legal_chat_endpoint(
         diff_data=final_state.get("diff_data"),
         processing_time_seconds=round(duration, 3),
     )
+
+    if settings.IDEMPOTENCY_ENABLED and redis_client:
+        await save_idempotency_result(
+            redis=redis_client,
+            idempotency_key=idempotency_key,
+            payload=chat_response.model_dump(),
+            ttl_seconds=settings.IDEMPOTENCY_TTL_SECONDS,
+        )
+
+    return chat_response
 
 
 @router.post(
@@ -171,7 +216,7 @@ async def legal_chat_stream_endpoint(
         # 2. Notificar fase inicial de enrutamiento al usuario
         yield f"event: status\ndata: {json.dumps({'stage': 'routing', 'message': 'Analizando consulta e identificando materia jurídica...'})}\n\n"
 
-        llm = build_chat_model(settings)
+        llm = getattr(http_request.app.state, "llm_client", None) or build_chat_model(settings)
         app_graph = getattr(http_request.app.state, "compiled_graph", None) or build_legal_graph(checkpointer=None)
 
         initial_messages = []
@@ -402,13 +447,36 @@ async def analyze_document_endpoint(
     # Auditoría activa de seguridad contra Prompt Injection antes de llegar al LLM
     audit_prompt_injection(doc_content)
 
+    # Control de idempotencia para evitar doble análisis de contratos pesados
+    redis_client = getattr(http_request.app.state, "redis_client", None)
+    idempotency_header = http_request.headers.get(IDEMPOTENCY_HEADER)
+    idempotency_key = idempotency_header or generate_idempotency_fingerprint(
+        client_ip=_client_ip(http_request),
+        path=http_request.url.path,
+        body_str=f"{document_type}|{doc_content[:500]}",
+    )
+
+    if settings.IDEMPOTENCY_ENABLED and redis_client:
+        status_idem, cached_payload = await check_or_acquire_idempotency(
+            redis=redis_client,
+            idempotency_key=idempotency_key,
+            ttl_seconds=settings.IDEMPOTENCY_TTL_SECONDS,
+        )
+        if status_idem == "COMPLETED" and cached_payload:
+            return LegalChatResponse(**cached_payload)
+        elif status_idem == "PROCESSING":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Una auditoría para este documento ya se encuentra en procesamiento. Por favor aguarde.",
+            )
+
     req = LegalChatRequest(
         query=f"Auditar el siguiente {document_type} a la luz del derecho argentino:",
         thread_id=str(uuid.uuid4()),
     )
 
     start_time = time.time()
-    llm = build_chat_model(settings)
+    llm = getattr(http_request.app.state, "llm_client", None) or build_chat_model(settings)
 
     app_graph = getattr(http_request.app.state, "compiled_graph", None) or build_legal_graph(checkpointer=None)
 
@@ -452,7 +520,11 @@ async def analyze_document_endpoint(
             detail="La auditoría del documento excedió el tiempo límite máximo de 85 segundos. Por favor reintente con una sección más acotada.",
         )
     except Exception as exc:
+        if settings.IDEMPOTENCY_ENABLED and redis_client:
+            await release_idempotency_lock(redis_client, idempotency_key)
         logger.error("Error durante auditoría de documento: %s", exc)
+        if isinstance(exc, HTTPException):
+            raise exc
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error durante el análisis del documento: {str(exc)}",
@@ -461,7 +533,7 @@ async def analyze_document_endpoint(
     duration = time.time() - start_time
     val_res = final_state.get("validation_result") or LegalValidationSummary(is_valid=True)
 
-    return LegalChatResponse(
+    analysis_response = LegalChatResponse(
         thread_id=req.thread_id or str(uuid.uuid4()),
         query=req.query,
         intent=QueryIntent.DOCUMENT_ANALYSIS,
@@ -471,6 +543,16 @@ async def analyze_document_endpoint(
         validation=val_res,
         processing_time_seconds=round(duration, 3),
     )
+
+    if settings.IDEMPOTENCY_ENABLED and redis_client:
+        await save_idempotency_result(
+            redis=redis_client,
+            idempotency_key=idempotency_key,
+            payload=analysis_response.model_dump(),
+            ttl_seconds=settings.IDEMPOTENCY_TTL_SECONDS,
+        )
+
+    return analysis_response
 
 
 @router.get(

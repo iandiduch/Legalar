@@ -44,7 +44,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request as u, sys; sys.exit(0 if u.urlopen('http://localhost:8000/api/v1/health', timeout=3).status == 200 else 1)"
 
-ENV WEB_CONCURRENCY=2
+ENV WEB_CONCURRENCY=4
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:asgi_app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:asgi_app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

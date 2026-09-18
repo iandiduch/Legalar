@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["local", "docker", "production"] = "local"
     LOG_LEVEL: str = "INFO"
     API_PORT: int = 8000
+    UVICORN_WORKERS: int = 4
     CORS_ORIGINS: list[str] = ["*"]
     DOCS_ENABLED: bool | None = None
 
@@ -135,12 +136,16 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "intelligence_system"
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: SecretStr = SecretStr("postgres")
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 30
 
     # --- Checkpointer LangGraph (psycopg, pool separado) ---
-    CHECKPOINTER_POOL_MIN_SIZE: int = 1
-    CHECKPOINTER_POOL_MAX_SIZE: int = 10
+    CHECKPOINTER_POOL_MIN_SIZE: int = 2
+    CHECKPOINTER_POOL_MAX_SIZE: int = 20
+
+    # --- Idempotencia y Concurrencia ---
+    IDEMPOTENCY_ENABLED: bool = True
+    IDEMPOTENCY_TTL_SECONDS: int = 60
 
     # --- Redis ---
     REDIS_HOST: str = "localhost"
