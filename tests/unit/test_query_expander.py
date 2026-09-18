@@ -155,3 +155,71 @@ def test_route_intent_edge_routes_general_inquiry():
     state = {"intent": QueryIntent.GENERAL_INQUIRY}
     edge = route_intent_edge(state)
     assert edge == "general_inquiry"
+
+
+@pytest.mark.asyncio
+async def test_validator_appends_warning_block_on_invalid():
+    """Valida que si el validador determina is_valid=False incorpore un bloque de advertencias visible."""
+    from unittest.mock import AsyncMock, MagicMock
+    from app.agents.legal.validator import ValidatorCheck, legal_validator_node
+    from app.schemas.legal.citation import LegalCitation
+
+    mock_llm = MagicMock()
+    mock_check = ValidatorCheck(
+        is_valid=False,
+        all_norms_in_force=False,
+        unsupported_claims=["La indemnización reclamada no cuenta con sustento normativo."],
+        warning_notes=["La Ley 27.551 fue derogada por el DNU 70/2023."],
+        synthesized_final_answer="Respuesta preliminar con advertencias sobre normas derogadas.",
+    )
+    mock_structured = MagicMock()
+    mock_structured.ainvoke = AsyncMock(return_value=mock_check)
+    mock_llm.with_structured_output = MagicMock(return_value=mock_structured)
+
+    citations = [
+        LegalCitation(
+            law_identifier="LEY-27551",
+            law_title="Ley de Alquileres",
+            article_number="14",
+            exact_quote="Texto de la ley...",
+            status="derogada",
+        )
+    ]
+    state = {
+        "thread_id": "test-invalid-thread",
+        "draft_answer": "Borrador con norma derogada.",
+        "citations": citations,
+    }
+    config = {
+        "configurable": {
+            "llm_client": mock_llm,
+        }
+    }
+
+    res = await legal_validator_node(state, config)
+
+    assert res["validation_result"].is_valid is False
+    assert "[!WARNING]" in res["final_answer"]
+    assert "Ley 27.551 fue derogada" in res["final_answer"]
+    assert "Observaciones de Auditoría Jurídica" in res["final_answer"]
+
+
+def test_prompts_aligned_with_guidelines():
+    """Valida que los prompts contengan las directivas de completitud, no cálculo numérico y preservación de preguntas."""
+    from app.agents.legal.document_analyzer import DOCUMENT_ANALYZER_PROMPT
+    from app.agents.legal.legal_agent import LEGAL_AGENT_PROMPT, _QUERY_REWRITE_PROMPT
+    from app.agents.legal.validator import VALIDATOR_PROMPT
+
+    # 1. Prohibición de cálculos aritméticos de liquidaciones
+    assert "PROHIBICIÓN DE CÁLCULOS ARITMÉTICOS" in LEGAL_AGENT_PROMPT
+    assert "Vizzoti" in LEGAL_AGENT_PROMPT
+
+    # 2. Query rewrite multiturrno para respuestas fácticas
+    assert "RESPUESTA FÁCTICA" in _QUERY_REWRITE_PROMPT
+
+    # 3. Preservación de preguntas de aclaración en el validador
+    assert "PRESERVACIÓN DE PREGUNTAS DE ACLARACIÓN" in VALIDATOR_PROMPT
+
+    # 4. Completitud documental en document_analyzer
+    assert "DOCUMENTO O FRAGMENTO INCOMPLETO" in DOCUMENT_ANALYZER_PROMPT
+

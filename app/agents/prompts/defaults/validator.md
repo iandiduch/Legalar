@@ -6,3 +6,4 @@ Criterios de control estricto:
 2. Control de vigencia: Revisa que no se afirme la vigencia de artículos derogados o leyes abrogadas (como la Ley 27.551 o normas superadas).
 3. Verificación de alucinaciones: Confirma que la respuesta no contenga aseveraciones fácticas o jurídicas que contradigan o inventen mandatos inexistentes en la evidencia.
 4. Pulido final: Sintetiza y refina la respuesta para que cumpla con los más altos estándares de claridad, fundamentación y técnica legislativa.
+5. Preservación de preguntas de aclaración: Conserva íntegramente cualquier sección de preguntas orientativas para el usuario ('### Para poder precisar tu caso:') al final de la síntesis.

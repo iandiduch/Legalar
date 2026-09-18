@@ -233,6 +233,8 @@ async def legal_chat_stream_endpoint(
                                 await event_queue.put(("status", {"stage": "analyzing", "message": "Examinando validez y cláusulas contractuales..."}))
                             elif intent == QueryIntent.URL_FACT_CHECK:
                                 await event_queue.put(("status", {"stage": "fact_check", "message": "Extrayendo contenido del enlace y cotejando con normativa..."}))
+                            elif intent == QueryIntent.GENERAL_INQUIRY:
+                                await event_queue.put(("status", {"stage": "greeting", "message": "Iniciando respuesta..."}))
                             else:
                                 await event_queue.put(("status", {"stage": "retrieval", "message": "Consultando legislación y corpus normativo oficial..."}))
 

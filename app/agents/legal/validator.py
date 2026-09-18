@@ -33,6 +33,7 @@ Criterios de validación:
 3. ¿La respuesta agregó afirmaciones contundentes que no figuran en la evidencia legal?
 4. Si la respuesta es jurídicamente sólida, refina la redacción para garantizar máxima claridad profesional.
 5. REGLA ESTRICTA DE ESTILO: La respuesta final debe ser directa y en Markdown. PROHIBIDO incluir saludos de carta ("Estimado/a", "Colega") o firmas/despedidas ("Atentamente", "Quedo a su disposición").
+6. PRESERVACIÓN DE PREGUNTAS DE ACLARACIÓN: Si el borrador contiene una sección de preguntas de aclaración o datos faltantes para precisar el caso (por ejemplo, titulada '### Para poder precisar tu caso:'), DEBES PRESERVARLA ÍNTEGRAMENTE al final de tu respuesta sintetizada, sin omitir ninguna de las preguntas.
 
 IMPORTANTE sobre el campo 'synthesized_final_answer':
 - Este campo debe ser SIEMPRE una respuesta jurídica directa al usuario, nunca un meta-comentario.
@@ -104,11 +105,23 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
             final_answer = synthesized
         elif not check.is_valid:
             logger.info(
-                "Validador marcó respuesta como inválida para thread '%s'; preservando borrador del agente legal. Problemas: %s",
+                "Validador marcó respuesta como inválida para thread '%s'; incorporando advertencias de auditoría. Problemas: %s",
                 state.get("thread_id", ""),
                 check.unsupported_claims,
             )
-            final_answer = draft
+            warnings = []
+            if check.warning_notes:
+                warnings.extend(check.warning_notes)
+            if check.unsupported_claims:
+                warnings.extend(f"Observación de sustento: {c}" for c in check.unsupported_claims)
+
+            warning_block = ""
+            if warnings:
+                warning_bullets = "\n".join(f"- ⚠️ {w}" for w in warnings)
+                warning_block = f"\n\n> [!WARNING]\n> **Observaciones de Auditoría Jurídica:**\n{warning_bullets}\n"
+
+            base_answer = synthesized if (synthesized and len(synthesized) >= 40) else draft
+            final_answer = base_answer + warning_block
         else:
             logger.info("Validador devolvió síntesis corta (%d chars); preservando borrador original.", len(synthesized))
             final_answer = draft
