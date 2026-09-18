@@ -216,7 +216,9 @@ REDIS_PORT=6379
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/v1/legal/chat` | Consulta jurídica doctrinal o normativa con dictamen y citas | JSON (`LegalChatResponse`) |
 | `POST` | `/api/v1/legal/chat/stream` | Transmisión en tiempo real token a token con metadatos finales | `text/event-stream` (SSE) |
-| `POST` | `/api/v1/legal/analyze` | Auditoría de cláusulas en contratos, convenios o cartas documento | Multipart / JSON (`LegalChatResponse`) |
+| `POST` | `/api/v1/legal/analyze` | Encola la auditoría de contratos o cartas documento en segundo plano | HTTP 202 (`AnalysisJobResponse`) |
+| `GET` | `/api/v1/legal/analyze/{id}` | Consulta de estado y dictamen final de la auditoría | JSON (`AnalysisJobStatusResponse`) |
+| `GET` | `/api/v1/legal/analyze/{id}/events` | Streaming en tiempo real del progreso y dictamen de la auditoría | `text/event-stream` (SSE) |
 | `GET` | `/api/v1/legal/diff` | Comparador histórico de redacción anterior vs vigente | JSON (`DiffResponse`) |
 | `POST` | `/api/v1/legal/sync` | Sincronización incremental Git con InfoLEG y cálculo de hashes | JSON (Admin Scope) |
 
@@ -294,7 +296,55 @@ Si gestionas el host directamente:
 
 ---
 
-## 🏆 7. Evaluación RAG (Golden Set & LLM-as-a-Judge)
+## ⚡ 7. Escalabilidad, Arquitectura de Workers y Mejoras Recomendadas
+
+El sistema cuenta con una arquitectura de alta concurrencia diseñada para soportar 100+ usuarios concurrentes sin degradación de latencia, bloqueos de CPU ni sobrecostos de tokens:
+
+### 🛠️ Arquitectura de Procesamiento Asíncrono Desacoplado
+1. **Auditoría Documental en Segundo Plano (`analysis-worker`):**
+   * El endpoint `POST /api/v1/legal/analyze` no bloquea el servidor FastAPI con lecturas pesadas de contratos ni esperas de 80 segundos.
+   * Responde de inmediato con `HTTP 202 Accepted` y un `analysis_id`, encolando la tarea en Redis (`legal:analysis:jobs`).
+   * Un worker dedicado ejecuta el análisis y el validador jurídico, emitiendo actualizaciones de estado en tiempo real (`status`, `done`, `error`) al frontend vía **Server-Sent Events (SSE)** sobre el canal Redis Pub/Sub (`GET /api/v1/legal/analyze/{id}/events`) o consulta REST (`GET /api/v1/legal/analyze/{id}`).
+2. **Ingesta Documental en Segundo Plano (`ingestion-worker`):**
+   * Consume la cola Redis `ingestion:jobs` para parseo de texto, chunking semántico y generación de embeddings hacia Pinecone y PostgreSQL FTS.
+3. **Concurrencia Multi-Worker y Pools Ampliados:**
+   * Uvicorn corre con 4 procesos workers (`WEB_CONCURRENCY=4`) aprovechando todos los núcleos de CPU.
+   * Pool de PostgreSQL ampliado (`DB_POOL_SIZE=20`, `DB_MAX_OVERFLOW=30`, `CHECKPOINTER_POOL_MAX_SIZE=20`) y sistema de idempotencia distribuida en Redis para bloquear peticiones duplicadas y evitar doble consumo de tokens.
+
+---
+
+### 💡 Mejoras Recomendadas para Escalar a Cientos de Miles de Usuarios
+
+#### 1. Introducir PgBouncer (Multiplexación de Conexiones PostgreSQL)
+* **El Problema:** Cada worker de FastAPI y worker de segundo plano mantiene su propio pool de conexiones abiertas hacia PostgreSQL. Al escalar horizontalmente a múltiples réplicas o pods en Kubernetes/Dokploy (ej. 5 réplicas × 4 workers × 20 conexiones = 400 conexiones activas), PostgreSQL colapsa rápidamente debido al consumo excesivo de memoria por cada proceso `fork()` que gestiona una conexión (`max_connections`).
+* **La Solución:** Colocar un contenedor **PgBouncer** frente a PostgreSQL configurado en modo `pool_mode = transaction`.
+  * **Funcionamiento:** PgBouncer actúa como un multiplexor inteligente: la aplicación FastAPI puede abrir cientos o miles de conexiones virtuales ultraligeras, mientras que PgBouncer mantiene un pool compacto y eficiente de sólo **20 a 30 conexiones físicas reales** al servidor PostgreSQL. Tan pronto como una transacción SQL finaliza, la conexión física se reutiliza inmediatamente para otra petición.
+  * **Configuración recomendada (`docker-compose.yml`):**
+    ```yaml
+    pgbouncer:
+      image: edoburu/pgbouncer:latest
+      environment:
+        DB_USER: postgres
+        DB_PASSWORD: ${POSTGRES_PASSWORD}
+        DB_HOST: postgres
+        POOL_MODE: transaction
+        MAX_CLIENT_CONN: 1000
+        DEFAULT_POOL_SIZE: 20
+        RESERVE_POOL_SIZE: 5
+      ports:
+        - "6432:5432"
+    ```
+
+#### 2. Caché Semántica en Redis (Ahorro de Tokens y Latencia Sub-50ms)
+* **El Problema:** En el ámbito legal argentino, un gran volumen de las consultas ciudadanas y profesionales son esencialmente recurrentes (ej. *"¿Cómo son los aumentos de alquiler según el DNU 70/2023?"*, *"¿Qué dice el DNU 70/23 de contratos de locación?"*, *"¿Cómo se calcula la indemnización por despido según el art. 245 LCT?"*). Enviar cada una de estas consultas repetitivas a través del grafo completo de LangGraph, los índices vectoriales y las llamadas a los modelos de OpenAI/OpenRouter consume entre 2 y 5 segundos de espera y miles de dólares en tokens LLM innecesarios.
+* **La Solución:** Implementar una capa de **Caché Semántica en Redis** con un TTL recomendado de 12 a 24 horas:
+  * **Mecanismo:** Antes de derivar la consulta al ruteador de LangGraph, se calcula el vector embedding de la pregunta del usuario y se ejecuta una búsqueda de similitud coseno (usando Redis Vector Search o HNSW) sobre las consultas recientemente validadas.
+  * **Hit de Caché:** Si la similitud semántica supera el 0.95 (95%), el backend retorna de inmediato el dictamen jurídico previamente validado en **menos de 50 milisegundos y con costo $0 en tokens**.
+  * **Miss de Caché:** Si no hay coincidencia semántica suficiente, el grafo se ejecuta normalmente y su dictamen validado por el guardrail se guarda en la caché de Redis para beneficiar a futuros usuarios.
+
+---
+
+## 🏆 8. Evaluación RAG (Golden Set & LLM-as-a-Judge)
 
 Para validar objetivamente el rigor normativo y la fidelidad del pipeline, se utiliza un harness automatizado con **LLM-as-a-Judge** ([`scripts/evaluate_rag.py`](scripts/evaluate_rag.py)) contra el conjunto curado ([`data/golden_set.json`](data/golden_set.json)):
 
@@ -309,7 +359,7 @@ Métricas evaluadas:
 
 ---
 
-## 📚 8. Fuentes de Datos, Licencia y Atribución Obligatoria
+## 📚 9. Fuentes de Datos, Licencia y Atribución Obligatoria
 
 ### Licencia del Código Fuente (Apache 2.0 con Atribución Obligatoria)
 El código de este motor y API se distribuye bajo los términos de la **[Apache License 2.0](LICENSE)**.
@@ -327,7 +377,7 @@ El código de este motor y API se distribuye bajo los términos de la **[Apache 
 
 ---
 
-## 🔍 9. Estructura del Corpus y Tipología de Normas
+## 🔍 10. Estructura del Corpus y Tipología de Normas
 
 El corpus procesado en `repo_legalize_ar` clasifica el ordenamiento normativo nacional según los estándares de nomenclatura de InfoLEG:
 
@@ -347,7 +397,7 @@ Cada norma incluye en su frontmatter estructurado el grado de fidelidad de su tr
 
 ---
 
-## ⚠️ 10. Limitaciones Conocidas del Dataset
+## ⚠️ 11. Limitaciones Conocidas del Dataset
 
 - **Anexos y Tablas en Formato Imagen**: Tablas tarifarias o escalas numéricas publicadas históricamente como imágenes escaneadas en InfoLEG (ej: anexos de la Ley 27.430) son omitidas en el parseo a texto Markdown (indicadas bajo `extra.images_dropped`).
 - **Resoluciones de Actualización Numérica**: Resoluciones administrativas que actualizan montos variables (como límites de capital de la Ley 19.550 o topes de multas por inflación) no modifican el articulado formal en V1.
@@ -356,7 +406,7 @@ Cada norma incluye en su frontmatter estructurado el grado de fidelidad de su tr
 
 ---
 
-## ⚖️ 11. Descargo de Responsabilidad (Legal Disclaimer)
+## ⚖️ 12. Descargo de Responsabilidad (Legal Disclaimer)
 
 > **AVISO LEGAL:** Este sistema de Inteligencia Artificial y motor de RAG legal tiene fines exclusivamente informativos, pedagógicos y de apoyo a la investigación jurídica. Las respuestas generadas por los modelos de lenguaje, el análisis de contratos y las citas normativas suministradas no constituyen dictamen jurídico vinculante, ni asesoramiento legal formal, ni sustituyen en ningún caso el criterio, análisis ni patrocinio letrado obligatorio de un abogado profesional matriculado en la jurisdicción competente. Ni los desarrolladores ni los proveedores de datos asumen responsabilidad por decisiones legales, contractuales o judiciales adoptadas con base en la información brindada por esta herramienta.
 

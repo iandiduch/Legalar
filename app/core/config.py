@@ -152,6 +152,8 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_INGEST_QUEUE_KEY: str = "ingestion:jobs"
+    REDIS_ANALYSIS_QUEUE_KEY: str = "legal:analysis:jobs"
+    ANALYSIS_JOB_TIMEOUT_MINUTES: int = 15
 
     # --- Ingesta ---
     MAX_UPLOAD_SIZE_MB: int = 20

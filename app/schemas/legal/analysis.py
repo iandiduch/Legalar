@@ -37,3 +37,30 @@ class DocumentAnalysisResponse(BaseModel):
     risks_detected: list[DocumentRiskItem] = Field(default_factory=list)
     relevant_statutes_applied: list[LegalCitation] = Field(default_factory=list)
     conclusions_and_next_steps: list[str] = Field(default_factory=list)
+
+
+class AnalysisJobResponse(BaseModel):
+    """Respuesta inmediata HTTP 202 Accepted tras encolar el análisis del documento."""
+    analysis_id: str = Field(description="Identificador único UUID de la auditoría para tracking y eventos SSE")
+    status: str = Field(default="PENDING", description="Estado inicial del job (PENDING)")
+    document_type: str = Field(description="Tipo de documento analizado (ej: contrato, carta_documento)")
+    filename: str = Field(description="Nombre del archivo o identificador")
+    message: str = Field(
+        default="Auditoría encolada exitosamente para procesamiento en segundo plano.",
+        description="Mensaje informativo para el cliente o frontend",
+    )
+    events_url: str = Field(
+        description="URL para suscribirse a Server-Sent Events (SSE) y recibir progreso y resultado en vivo"
+    )
+
+
+class AnalysisJobStatusResponse(BaseModel):
+    """Consulta de estado y resultado de un trabajo de análisis de documento."""
+    analysis_id: str
+    status: str = Field(description="PENDING, PROCESSING, COMPLETED o FAILED")
+    document_type: str
+    filename: str
+    error_message: str | None = None
+    result: dict | None = Field(default=None, description="Resultado final del análisis (LegalChatResponse)")
+    processing_time_seconds: float | None = None
+

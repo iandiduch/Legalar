@@ -115,6 +115,36 @@ services:
       retries: 3
       start_period: 15s
 
+  analysis-worker:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_COLLECTOR_ENDPOINT:-http://phoenix:6006/v1/traces}
+    command: ["python", "-m", "app.services.legal.analysis_worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - uploads_data:/app/data/uploads
+      - legalize_repo_data:/app/repo_legalize_ar
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis,os,sys; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'),port=int(os.environ.get('REDIS_PORT','6379'))); sys.exit(0 if r.get('worker:analysis:heartbeat') else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   phoenix:
     image: arizephoenix/phoenix:latest
     ports:

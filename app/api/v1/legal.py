@@ -26,7 +26,9 @@ from app.core.idempotency import (
 )
 from app.core.security import _client_ip, check_legal_rate_limit, require_scope
 from app.db.session import get_db, get_sessionmaker
+from app.db.models_orm import AnalysisJob
 from app.domain.models import ApiKeyScope, ConfidenceLevel, FileType, QueryIntent
+from app.schemas.legal.analysis import AnalysisJobResponse, AnalysisJobStatusResponse
 from app.schemas.legal.chat import LegalChatRequest, LegalChatResponse, LegalValidationSummary
 from app.schemas.legal.diff import DiffResponse
 from app.services.ingestion_service import parse_document
@@ -403,22 +405,28 @@ async def legal_chat_stream_endpoint(
 
 @router.post(
     "/analyze",
-    response_model=LegalChatResponse,
-    summary="Auditoría de Documento Legal",
-    description="Analiza contratos, convenios o cartas documento (PDF/DOCX/TXT) y detecta cláusulas abusivas o nulas según la ley argentina.",
+    response_model=AnalysisJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Auditoría de Documento Legal (Asíncrona)",
+    description=(
+        "Encola la auditoría de contratos, convenios o cartas documento (PDF/DOCX/TXT) para procesamiento en segundo plano. "
+        "Responde inmediatamente con HTTP 202 Accepted y el analysis_id para seguimiento mediante SSE (/events) o polling."
+    ),
 )
 async def analyze_document_endpoint(
     http_request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
-    retriever: Annotated[HybridLegalRetriever, Depends(get_legal_retriever)],
-    diff_client: Annotated[LegalizeApiClient, Depends(get_legalize_api_client)],
+    db: Annotated[AsyncSession, Depends(get_db)],
     file: UploadFile | None = File(default=None),
     raw_text: str | None = Form(default=None),
     document_type: str = Form(default="contrato"),
     _rate_limit: Annotated[None, Depends(check_legal_rate_limit)] = None,
-) -> LegalChatResponse:
+) -> AnalysisJobResponse:
     doc_content = ""
+    display_filename = "texto_directo.txt"
+
     if file and file.filename:
+        display_filename = Path(file.filename).name or "documento"
         file_bytes = await file.read()
         mime_type = validate_file_magic_bytes(
             file_bytes=file_bytes,
@@ -444,115 +452,162 @@ async def analyze_document_endpoint(
             detail="El documento es demasiado corto para realizar un análisis jurídico consistente.",
         )
 
-    # Auditoría activa de seguridad contra Prompt Injection antes de llegar al LLM
+    # Auditoría activa de seguridad contra Prompt Injection antes de encolar
     audit_prompt_injection(doc_content)
 
-    # Control de idempotencia para evitar doble análisis de contratos pesados
-    redis_client = getattr(http_request.app.state, "redis_client", None)
-    idempotency_header = http_request.headers.get(IDEMPOTENCY_HEADER)
-    idempotency_key = idempotency_header or generate_idempotency_fingerprint(
-        client_ip=_client_ip(http_request),
-        path=http_request.url.path,
-        body_str=f"{document_type}|{doc_content[:500]}",
+    analysis_id = uuid.uuid4()
+    job = AnalysisJob(
+        analysis_id=analysis_id,
+        document_type=document_type,
+        filename=display_filename,
+        document_text=doc_content,
+        status="PENDING",
     )
+    db.add(job)
+    await db.commit()
 
-    if settings.IDEMPOTENCY_ENABLED and redis_client:
-        status_idem, cached_payload = await check_or_acquire_idempotency(
-            redis=redis_client,
-            idempotency_key=idempotency_key,
-            ttl_seconds=settings.IDEMPOTENCY_TTL_SECONDS,
-        )
-        if status_idem == "COMPLETED" and cached_payload:
-            return LegalChatResponse(**cached_payload)
-        elif status_idem == "PROCESSING":
+    redis_client = getattr(http_request.app.state, "redis_client", None)
+    if redis_client:
+        try:
+            await redis_client.rpush(settings.REDIS_ANALYSIS_QUEUE_KEY, str(analysis_id))
+        except Exception as exc:  # noqa: BLE001
+            job.status = "FAILED"
+            job.error_message = f"Fallo al encolar en Redis: {exc}"
+            await db.commit()
+            logger.error("analyze_endpoint.enqueue_failed", extra={"analysis_id": str(analysis_id), "error": str(exc)})
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Una auditoría para este documento ya se encuentra en procesamiento. Por favor aguarde.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="El servicio de colas de auditoría no se encuentra disponible temporalmente.",
             )
 
-    req = LegalChatRequest(
-        query=f"Auditar el siguiente {document_type} a la luz del derecho argentino:",
-        thread_id=str(uuid.uuid4()),
+    return AnalysisJobResponse(
+        analysis_id=str(analysis_id),
+        status="PENDING",
+        document_type=document_type,
+        filename=display_filename,
+        message="Auditoría encolada exitosamente para procesamiento en segundo plano.",
+        events_url=f"/api/v1/legal/analyze/{analysis_id}/events",
     )
 
-    start_time = time.time()
-    llm = getattr(http_request.app.state, "llm_client", None) or build_chat_model(settings)
 
-    app_graph = getattr(http_request.app.state, "compiled_graph", None) or build_legal_graph(checkpointer=None)
+@router.get(
+    "/analyze/{analysis_id}",
+    response_model=AnalysisJobStatusResponse,
+    summary="Consultar Estado de Auditoría Documental",
+    description="Devuelve el estado actual de la auditoría (PENDING, PROCESSING, COMPLETED, FAILED) y el dictamen final una vez concluido.",
+)
+async def get_analysis_status(
+    analysis_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AnalysisJobStatusResponse:
+    job = await db.get(AnalysisJob, analysis_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Auditoría documental con ID {analysis_id} no encontrada.",
+        )
 
-    initial_state: LegalAgentState = {
-        "messages": [HumanMessage(content=req.query)],
-        "thread_id": req.thread_id or str(uuid.uuid4()),
-        "query": req.query,
-        "intent": QueryIntent.DOCUMENT_ANALYSIS,
-        "citations": [],
-        "draft_answer": None,
-        "validation_result": None,
-        "document_text": doc_content,
-        "document_type": document_type,
-        "diff_request_params": None,
-        "diff_result": None,
-        "final_answer": None,
-        "confidence": ConfidenceLevel.HIGH,
-        "iteration": 0,
-    }
+    proc_time = None
+    if job.completed_at and job.started_at:
+        proc_time = round((job.completed_at - job.started_at).total_seconds(), 3)
 
-    config = {
-        "configurable": {
-            "thread_id": req.thread_id,
-            "llm_client": llm,
-            "legal_retriever": retriever,
-            "legalize_api_client": diff_client,
-            "settings": settings,
+    return AnalysisJobStatusResponse(
+        analysis_id=str(job.analysis_id),
+        status=job.status,
+        document_type=job.document_type,
+        filename=job.filename,
+        error_message=job.error_message,
+        result=job.result,
+        processing_time_seconds=proc_time,
+    )
+
+
+@router.get(
+    "/analyze/{analysis_id}/events",
+    summary="Streaming de Eventos SSE de Auditoría",
+    description="Transmite eventos en tiempo real (Server-Sent Events) sobre el avance y resultado final del análisis del documento.",
+)
+async def stream_analysis_events(
+    analysis_id: uuid.UUID,
+    http_request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StreamingResponse:
+    job = await db.get(AnalysisJob, analysis_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Auditoría con ID {analysis_id} no encontrada.",
+        )
+
+    async def event_generator():
+        # Si el job ya estaba finalizado al momento de la conexión
+        if job.status == "COMPLETED" and job.result:
+            yield f"event: done\ndata: {json.dumps(job.result)}\n\n"
+            return
+        elif job.status == "FAILED":
+            yield f"event: error\ndata: {json.dumps({'detail': job.error_message or 'Fallo en la auditoría'})}\n\n"
+            return
+
+        redis_client = getattr(http_request.app.state, "redis_client", None)
+        if not redis_client:
+            yield f"event: error\ndata: {json.dumps({'detail': 'Broker Redis no configurado'})}\n\n"
+            return
+
+        pubsub_channel = f"legal:analysis:events:{analysis_id}"
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe(pubsub_channel)
+
+        yield f"event: status\ndata: {json.dumps({'stage': 'queued', 'message': 'Auditoría en cola de espera...'})}\n\n"
+
+        max_wait_seconds = 180
+        started_waiting = time.time()
+
+        try:
+            while True:
+                if await http_request.is_disconnected():
+                    break
+
+                if time.time() - started_waiting > max_wait_seconds:
+                    yield f"event: error\ndata: {json.dumps({'detail': 'Timeout esperando resultado del worker (180s)'})}\n\n"
+                    break
+
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=2.0)
+                if message and message.get("type") == "message":
+                    try:
+                        raw_data = message.get("data")
+                        if isinstance(raw_data, bytes):
+                            raw_data = raw_data.decode("utf-8")
+                        payload = json.loads(raw_data)
+                        ev_type = payload.get("event", "status")
+
+                        if ev_type == "status":
+                            yield f"event: status\ndata: {json.dumps(payload)}\n\n"
+                        elif ev_type == "done":
+                            yield f"event: done\ndata: {json.dumps(payload.get('result', {}))}\n\n"
+                            break
+                        elif ev_type == "error":
+                            yield f"event: error\ndata: {json.dumps({'detail': payload.get('message', 'Error en auditoría')})}\n\n"
+                            break
+                    except Exception as parse_err:
+                        logger.warning("sse_parse_error: %s", parse_err)
+                else:
+                    # Ping keep-alive para mantener el socket SSE activo a través de proxies/Nginx
+                    yield ": ping\n\n"
+        finally:
+            with suppress(Exception):
+                await pubsub.unsubscribe(pubsub_channel)
+                await pubsub.close()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
-        "recursion_limit": settings.GRAPH_RECURSION_LIMIT,
-    }
-
-    try:
-        final_state = await asyncio.wait_for(
-            app_graph.ainvoke(initial_state, config=config),
-            timeout=85.0,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("Timeout de 85s superado en auditoría de documento (%s)", req.thread_id)
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="La auditoría del documento excedió el tiempo límite máximo de 85 segundos. Por favor reintente con una sección más acotada.",
-        )
-    except Exception as exc:
-        if settings.IDEMPOTENCY_ENABLED and redis_client:
-            await release_idempotency_lock(redis_client, idempotency_key)
-        logger.error("Error durante auditoría de documento: %s", exc)
-        if isinstance(exc, HTTPException):
-            raise exc
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error durante el análisis del documento: {str(exc)}",
-        )
-
-    duration = time.time() - start_time
-    val_res = final_state.get("validation_result") or LegalValidationSummary(is_valid=True)
-
-    analysis_response = LegalChatResponse(
-        thread_id=req.thread_id or str(uuid.uuid4()),
-        query=req.query,
-        intent=QueryIntent.DOCUMENT_ANALYSIS,
-        answer=final_state.get("final_answer") or final_state.get("draft_answer") or "Análisis completado.",
-        citations=final_state.get("citations", []),
-        confidence=final_state.get("confidence", ConfidenceLevel.HIGH),
-        validation=val_res,
-        processing_time_seconds=round(duration, 3),
     )
-
-    if settings.IDEMPOTENCY_ENABLED and redis_client:
-        await save_idempotency_result(
-            redis=redis_client,
-            idempotency_key=idempotency_key,
-            payload=analysis_response.model_dump(),
-            ttl_seconds=settings.IDEMPOTENCY_TTL_SECONDS,
-        )
-
-    return analysis_response
 
 
 @router.get(
