@@ -43,8 +43,21 @@ async def document_analyzer_node(
     retriever: HybridLegalRetriever = config["configurable"].get("legal_retriever")
     settings = config["configurable"].get("settings")
 
-    doc_text = state.get("document_text") or ""
+    doc_text = state.get("document_text") or state.get("query") or ""
     doc_type = state.get("document_type") or "contrato"
+
+    if len(doc_text.strip()) < 30:
+        clarification = (
+            "No se ha provisto el texto de las cláusulas del contrato o documento para auditar. "
+            "Por favor, transcribe o adjunta el texto completo del contrato o convenio que deseas revisar."
+        )
+        return {
+            "citations": [],
+            "draft_answer": clarification,
+            "final_answer": clarification,
+            "confidence": ConfidenceLevel.LOW,
+            "messages": [AIMessage(content=clarification, name=AgentRole.DOCUMENT_ANALYZER.value)],
+        }
 
     citations = []
     if retriever and doc_text:

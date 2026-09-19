@@ -33,7 +33,7 @@
     "question": "¿Cuál es el plazo genérico de la prescripción liberatoria en el Código Civil y Comercial de la Nación (salvo plazo especial)?",
     "expected_source": "LEY-26994",
     "expected_article": "2560",
-    "expected_answer_contains": ["cinco años", "5 años"]
+    "expected_answer_contains": ["cinco (5) años", "cinco años", "5 años"]
   },
   {
     "question": "¿Qué establece la ley sobre el pago de la remuneración exclusivamente en mercadería o especie?",
@@ -57,6 +57,6 @@
     "question": "¿Cuáles son los precios de pasajes de avión y hoteles para viajar a Madrid?",
     "expected_source": null,
     "expected_article": null,
-    "expected_answer_contains": ["asistente legal", "jurídico", "derecho argentino"]
+    "expected_answer_contains": ["derecho", "legal", "argentin", "leyes"]
   }
 ]

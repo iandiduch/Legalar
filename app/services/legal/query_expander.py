@@ -64,6 +64,10 @@ Casos paradigmáticos en el derecho argentino:
 6. TUTELA Y PAGO DE REMUNERACIÓN LABORAL (LCT):
    - Art. 105 LCT (formas de remuneración), Art. 107 LCT (tope máximo del 20% para pago en especie), Art. 124 LCT (pago en dinero y prohibición de mercaderías).
    - Canónicos: ['DEC-390-1976:105', 'DEC-390-1976:107', 'DEC-390-1976:124', 'LEY-20744:105'].
+7. DERECHO DE MARCAS Y OPOSICIONES ANTE EL INPI (Ley de Marcas y Designaciones - Ley 22.362):
+   - Confundibilidad y prohibición de registro: Art. 3 inc. a y b (marcas idénticas o similares para los mismos productos o servicios, o susceptibles de producir confusión en el público consumidor).
+   - Procedimiento de oposiciones: Arts. 12 a 17 (notificación de la oposición, plazo legal de 3 meses para negociación o levantamiento, instancia de resolución administrativa de oposiciones en el INPI).
+   - Canónicos: ['LEY-22362:3', 'LEY-22362:14', 'LEY-22362:15', 'LEY-22362:16'].
 
 Instrucciones de clasificación:
 - Si la consulta es puntual, unívoca o no requiere articular reglas generales con figuras especiales:

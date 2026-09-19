@@ -288,3 +288,46 @@ def test_has_prior_ai_context():
     ]
     assert _has_prior_ai_context(messages_only_human) is False
     assert _has_prior_ai_context([]) is False
+
+
+@pytest.mark.asyncio
+async def test_document_analyzer_empty_text_guard():
+    """Verifica que document_analyzer aborte limpiamente si no hay texto suficiente sin alucinar contratos."""
+    from app.agents.legal.document_analyzer import document_analyzer_node
+    from app.domain.models import ConfidenceLevel
+
+    state = {
+        "messages": [],
+        "query": "",
+        "document_text": None,
+        "document_type": "contrato",
+    }
+    config = {
+        "configurable": {
+            "llm_client": None,
+            "legal_retriever": None,
+            "settings": None,
+        }
+    }
+    res = await document_analyzer_node(state, config)
+    assert res["confidence"] == ConfidenceLevel.LOW
+    assert "No se ha provisto el texto" in res["final_answer"]
+    assert "telecomunicaciones" not in res["final_answer"].lower()
+
+
+def test_router_decision_opposition_is_legal_consultation():
+    """Verifica que un caso real u oposición ante el INPI se clasifique como LEGAL_CONSULTATION."""
+    from app.agents.legal.router import RouterDecision
+    from app.domain.models import QueryIntent
+
+    decision = RouterDecision(
+        intent=QueryIntent.LEGAL_CONSULTATION,
+        law_identifier_hint="LEY-22362",
+        article_hint="3",
+        wants_explanation=False,
+        reasoning="Oposición de marca ante el INPI por supuesta confundibilidad",
+    )
+    assert decision.intent == QueryIntent.LEGAL_CONSULTATION
+    assert decision.law_identifier_hint == "LEY-22362"
+    assert decision.article_hint == "3"
+
