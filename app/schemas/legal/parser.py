@@ -24,6 +24,7 @@ class ParsedArticle(BaseModel):
     incisos: list[dict[str, str]] = Field(default_factory=list, description="Lista de incisos detectados")
     editorial_notes: list[str] = Field(default_factory=list, description="Notas de sustitución / derogación de InfoLEG")
     hierarchy: ParsedHierarchy = Field(default_factory=ParsedHierarchy)
+    status: str = Field(default="in_force", description="Estado de vigencia del artículo individual (in_force o repealed)")
     content_hash: str = Field(description="Hash SHA-256 del contenido dispositivo para evitar re-embedding")
     contextualized_text: str = Field(description="Texto con breadcrumbs jerárquicos listo para Embedding")
 

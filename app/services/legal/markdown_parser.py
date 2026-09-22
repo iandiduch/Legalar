@@ -214,6 +214,15 @@ def parse_markdown_law(content: str, fallback_identifier: str = "NORMA") -> Pars
             content=cleaned_content,
         )
 
+        # Detección de vigencia individual del artículo
+        art_status = status
+        lower_notes = " ".join(notes).lower()
+        full_lower = full_content.lower()
+        if any(w in lower_notes for w in ("derogado", "abrogado", "suprimido", "sin efecto")):
+            art_status = "repealed"
+        elif any(w in full_lower for w in ("artículo derogado", "articulo derogado", "texto derogado", "derogado por")):
+            art_status = "repealed"
+
         articles.append(
             ParsedArticle(
                 law_identifier=identifier,
@@ -224,6 +233,7 @@ def parse_markdown_law(content: str, fallback_identifier: str = "NORMA") -> Pars
                 incisos=incisos,
                 editorial_notes=[n.strip("*() ") for n in notes],
                 hierarchy=current_hierarchy.model_copy(),
+                status=art_status,
                 content_hash=content_hash,
                 contextualized_text=contextualized,
             )

@@ -217,8 +217,11 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
     evidence_lines = []
     for c in citations:
         ep_str = f" ({c.epigraph})" if c.epigraph else ""
+        status_tag = ""
+        if c.status and c.status.lower() in ("repealed", "derogada", "derogado", "abrogada", "abrogado"):
+            status_tag = " [⚠️ NORMA O ARTÍCULO DEROGADO - NO APLICAR COMO DERECHO VIGENTE]"
         evidence_lines.append(
-            f"--- NORMA: {c.law_identifier} ({c.law_title}) | ARTÍCULO: {c.article_number}{ep_str} ---\n"
+            f"--- NORMA: {c.law_identifier} ({c.law_title}) | ARTÍCULO: {c.article_number}{ep_str}{status_tag} ---\n"
             f"ESTADO: {c.status} | URL: {c.infoleg_url or 'N/A'}\n"
             f"TEXTO: {c.exact_quote}\n"
         )
