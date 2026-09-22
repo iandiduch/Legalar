@@ -13,6 +13,7 @@ from app.domain.models import AgentRole, ConfidenceLevel, QueryIntent
 from app.schemas.legal.citation import LegalCitation
 from app.services.legal.query_expander import expand_legal_query
 from app.services.legal.retriever import HybridLegalRetriever
+from app.agents.legal.sanitizer import strip_leaked_metadata
 from app.services.prompt_manager import resolve_prompt
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,11 @@ def _filter_used_citations(
 
 class LegalAnswerPayload(BaseModel):
     answer: str = Field(
-        description="Respuesta jurídica integral, clara y con citas normativas específicas. Si faltan datos fácticos esenciales para resolver el caso, incluye preguntas de aclaración."
+        description=(
+            "Respuesta jurídica integral, clara y con citas normativas específicas dirigida al usuario en Markdown. "
+            "PROHIBIDO incluir metadatos internos, nivel de confianza o listas técnicas como 'Confianza: ...' o "
+            "'articles_referenced: ...' dentro de este texto; esos datos van en sus respectivos campos del JSON."
+        )
     )
     articles_referenced: list[str] = Field(
         default_factory=list,
@@ -274,13 +279,13 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
             messages,
             max_attempts=settings.STRUCTURED_OUTPUT_MAX_ATTEMPTS if settings else 2,
         )
-        answer = payload.answer
+        answer = strip_leaked_metadata(payload.answer)
         confidence = payload.confidence
         articles_referenced = payload.articles_referenced
     except Exception as exc:
         logger.warning("Fallo en estructurado de legal_agent, usando generación directa: %s", exc)
         res = await llm.ainvoke(messages)
-        answer = str(res.content)
+        answer = strip_leaked_metadata(str(res.content))
         confidence = ConfidenceLevel.MEDIUM if citations else ConfidenceLevel.LOW
         articles_referenced = []
 

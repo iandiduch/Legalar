@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.legal.graph import build_legal_graph
 from app.agents.legal.state import LegalAgentState
 from app.core.config import Settings
+from app.agents.legal.sanitizer import strip_leaked_metadata
 from app.core.idempotency import (
     IDEMPOTENCY_HEADER,
     check_or_acquire_idempotency,
@@ -173,7 +174,9 @@ async def legal_chat_endpoint(
         thread_id=thread_id,
         query=request.query,
         intent=final_state.get("intent", QueryIntent.LEGAL_CONSULTATION),
-        answer=final_state.get("final_answer") or final_state.get("draft_answer") or "No se pudo generar respuesta.",
+        answer=strip_leaked_metadata(
+            final_state.get("final_answer") or final_state.get("draft_answer") or "No se pudo generar respuesta."
+        ),
         citations=final_state.get("citations", []),
         confidence=final_state.get("confidence", ConfidenceLevel.MEDIUM),
         validation=val_res,
@@ -352,7 +355,7 @@ async def legal_chat_stream_endpoint(
             logger.info("Cliente desconectado tras finalización del grafo (%s)", thread_id)
             return
 
-        final_answer = (
+        final_answer = strip_leaked_metadata(
             final_state.get("final_answer")
             or final_state.get("draft_answer")
             or "No se pudo generar respuesta."

@@ -14,6 +14,7 @@ IMPORTANTE sobre el campo 'synthesized_final_answer':
 - Este campo debe ser SIEMPRE la respuesta jurídica directa, completa, pulida y concluyente que leerá el usuario.
 - Si la respuesta requiere ajustes de vigencia o técnica legal: corrígela directamente y entrega aquí la versión final impecable.
 - NUNCA escribas en este campo meta-comentarios como 'la respuesta no está en la evidencia'.
+- PROHIBIDO filtrar metadatos técnicos: Si el borrador a validar contiene al final líneas de metadatos técnicos o depuración (como 'Confianza: ...', 'confidence: ...' o 'articles_referenced: [...]'), ELIMÍNALAS por completo.
 
 IMPORTANTE sobre 'warning_notes' y 'unsupported_claims':
 - Estos campos son EXCLUSIVAMENTE para notas técnicas ultra breves (máximo 1 o 2 oraciones concisas tipo telegrama, ej: 'Ley 27.551 derogada por DNU 70/2023').

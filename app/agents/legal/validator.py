@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
+from app.agents.legal.sanitizer import strip_leaked_metadata
 from app.agents.legal.state import LegalAgentState
 from app.core.structured_output import invoke_structured_with_retry
 from app.domain.models import AgentRole, ConfidenceLevel
@@ -22,7 +23,9 @@ class ValidatorCheck(BaseModel):
     all_norms_in_force: bool = Field(description="True si todas las leyes y artículos citados están en vigencia")
     unsupported_claims: list[str] = Field(default_factory=list, description="Afirmaciones que no se desprenden de las normas")
     warning_notes: list[str] = Field(default_factory=list, description="Advertencias sobre reformas o derogaciones")
-    synthesized_final_answer: str = Field(description="Respuesta jurídica final pulida y validada")
+    synthesized_final_answer: str = Field(
+        description="Respuesta jurídica final pulida y validada. PROHIBIDO incluir metadatos como 'Confianza: ...' o 'articles_referenced: ...'."
+    )
 
 
 async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -> dict[str, Any]:
@@ -78,14 +81,14 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
             messages,
             max_attempts=settings.STRUCTURED_OUTPUT_MAX_ATTEMPTS if settings else 2,
         )
-        synthesized = (check.synthesized_final_answer or "").strip()
+        synthesized = strip_leaked_metadata((check.synthesized_final_answer or "").strip())
 
         # Priorizar la versión sintetizada y depurada del validador si es sustantiva (>= 40 chars)
         if len(synthesized) >= 40:
             final_answer = synthesized
         else:
             logger.info("Validador devolvió síntesis corta (%d chars); preservando borrador original.", len(synthesized))
-            final_answer = draft
+            final_answer = strip_leaked_metadata(draft)
 
         # Si el validador determinó que la respuesta no es válida, adjuntar observaciones de auditoría breves
         if not check.is_valid:
@@ -132,13 +135,15 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
         )
     except Exception as exc:
         logger.warning("Fallo en validador estructurado, usando aprobación directa: %s", exc)
-        final_answer = draft
+        final_answer = strip_leaked_metadata(draft)
         val_summary = LegalValidationSummary(
             is_valid=True,
             all_norms_in_force=not has_repealed,
             unsupported_claims=[],
             warning_notes=["Advertencia: Cita norma no vigente"] if has_repealed else [],
         )
+
+    final_answer = strip_leaked_metadata(final_answer)
 
     return {
         "validation_result": val_summary,
