@@ -106,6 +106,17 @@ async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[st
                 logger.info("router_node: descartando article_hint no numérico/descriptivo: %r", cleaned_hint)
                 decision.article_hint = None
 
+        # Guardrail estructural multi-país:
+        # El cotejo textual directo (VERSION_DIFF) requiere técnicamente un artículo puntual (article_hint).
+        # Si la consulta no tiene un artículo numérico específico (ej. preguntas abiertas sobre reformas),
+        # se deriva a LEGAL_CONSULTATION para que el agente legal investigue y elabore el dictamen sustantivo.
+        if decision.intent == QueryIntent.VERSION_DIFF and not decision.article_hint:
+            logger.info(
+                "router_node: derivando VERSION_DIFF sin article_hint a legal_consultation (law_hint=%r)",
+                decision.law_identifier_hint,
+            )
+            decision.intent = QueryIntent.LEGAL_CONSULTATION
+
         diff_params = dict(state.get("diff_request_params") or {})
         if decision.law_identifier_hint:
             diff_params["law_identifier"] = decision.law_identifier_hint

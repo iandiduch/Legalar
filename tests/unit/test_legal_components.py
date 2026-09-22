@@ -331,3 +331,40 @@ def test_router_decision_opposition_is_legal_consultation():
     assert decision.law_identifier_hint == "LEY-22362"
     assert decision.article_hint == "3"
 
+
+@pytest.mark.asyncio
+async def test_router_reroutes_broad_comparison_question_to_legal_consultation():
+    """Verifica que consultas abiertas sobre reformas y comparación de artículos no se desvíen a version_diff."""
+    from unittest.mock import AsyncMock
+    from app.agents.legal.router import router_node, RouterDecision
+    from app.domain.models import QueryIntent
+
+    query = (
+        "¿Qué cambios introdujo el DNU 70/2023 en la Ley de Contrato de Trabajo respecto de la registración laboral "
+        "y qué artículos fueron modificados? Compará el texto anterior con el actual y citá las fuentes correspondientes."
+    )
+
+    mock_llm = AsyncMock()
+    mock_decision = RouterDecision(
+        intent=QueryIntent.VERSION_DIFF,
+        law_identifier_hint="DNU 70/2023 y Ley de Contrato de Trabajo",
+        article_hint=None,
+        wants_explanation=True,
+        reasoning="Usuario pide comparar texto anterior con actual",
+    )
+    mock_llm.with_structured_output.return_value.ainvoke.return_value = mock_decision
+
+    state = {
+        "messages": [],
+        "query": query,
+    }
+    config = {
+        "configurable": {
+            "llm_client": mock_llm,
+        }
+    }
+
+    res = await router_node(state, config)
+    assert res["intent"] == QueryIntent.LEGAL_CONSULTATION
+
+

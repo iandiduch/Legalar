@@ -20,6 +20,7 @@ repo_legalize_ar/
 *.MD
 *.md
 !README.md
+!app/agents/prompts/defaults/*.md
 
 # Frontend (mantenido en repositorio privado independiente)
 frontend/

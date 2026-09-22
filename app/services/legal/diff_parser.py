@@ -84,7 +84,7 @@ def build_diff_block_data(
 ) -> dict[str, Any]:
     """Construye el payload exacto requerido por MessageDiffBlock.jsx."""
     law_id = diff_response.law_identifier
-    art_num = diff_response.article_number or "General"
+    art_num = diff_response.article_number
     law_title = diff_response.law_title or law_id
 
     has_changes = False
@@ -115,11 +115,11 @@ def build_diff_block_data(
     friendly_source = "Registro Oficial de Reformas Normativas" if diff_response.diff_source == "git_local" else "Legalize API Oficial"
 
     return {
-        "id": f"diff-{law_id}-{art_num}",
+        "id": f"diff-{law_id}-{art_num or 'full'}",
         "lawIdentifier": law_id,
         "lawTitle": law_title,
         "articleNumber": art_num,
-        "articleEpigraph": article_epigraph or f"Artículo {art_num}",
+        "articleEpigraph": article_epigraph or (f"Artículo {art_num}" if art_num else "Texto Consolidado"),
         "reformName": reform_name or friendly_source,
         "reformDate": reform_date or "Texto consolidado oficial",
         "hasChanges": has_changes,
