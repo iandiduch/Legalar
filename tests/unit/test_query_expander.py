@@ -206,20 +206,24 @@ async def test_validator_appends_warning_block_on_invalid():
 
 def test_prompts_aligned_with_guidelines():
     """Valida que los prompts contengan las directivas de completitud, no cálculo numérico y preservación de preguntas."""
-    from app.agents.legal.document_analyzer import DOCUMENT_ANALYZER_PROMPT
-    from app.agents.legal.legal_agent import LEGAL_AGENT_PROMPT, _QUERY_REWRITE_PROMPT
-    from app.agents.legal.validator import VALIDATOR_PROMPT
+    from app.services.prompt_manager import get_default_prompt_manager
+
+    pm = get_default_prompt_manager()
+    doc_prompt = pm._load_from_disk("document_analyzer").content
+    legal_prompt = pm._load_from_disk("legal_agent").content
+    rewrite_prompt = pm._load_from_disk("query_rewrite").content
+    validator_prompt = pm._load_from_disk("validator").content
 
     # 1. Prohibición de cálculos aritméticos de liquidaciones
-    assert "PROHIBICIÓN DE CÁLCULOS ARITMÉTICOS" in LEGAL_AGENT_PROMPT
-    assert "Vizzoti" in LEGAL_AGENT_PROMPT
+    assert "PROHIBICIÓN DE CÁLCULOS ARITMÉTICOS" in legal_prompt
+    assert "Vizzoti" in legal_prompt
 
     # 2. Query rewrite multiturrno para respuestas fácticas
-    assert "RESPUESTA FÁCTICA" in _QUERY_REWRITE_PROMPT
+    assert "RESPUESTA FÁCTICA" in rewrite_prompt
 
     # 3. Preservación de preguntas de aclaración en el validador
-    assert "PRESERVACIÓN DE PREGUNTAS DE ACLARACIÓN" in VALIDATOR_PROMPT
+    assert "PRESERVACIÓN DE PREGUNTAS DE ACLARACIÓN" in validator_prompt
 
     # 4. Completitud documental en document_analyzer
-    assert "DOCUMENTO O FRAGMENTO INCOMPLETO" in DOCUMENT_ANALYZER_PROMPT
+    assert "DOCUMENTO O FRAGMENTO INCOMPLETO" in doc_prompt
 

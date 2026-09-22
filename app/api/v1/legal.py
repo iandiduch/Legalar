@@ -133,6 +133,7 @@ async def legal_chat_endpoint(
         "iteration": 0,
     }
 
+    prompt_mgr = getattr(http_request.app.state, "prompt_manager", None)
     config = {
         "configurable": {
             "thread_id": thread_id,
@@ -140,6 +141,7 @@ async def legal_chat_endpoint(
             "legal_retriever": retriever,
             "legalize_api_client": diff_client,
             "settings": settings,
+            "prompt_manager": prompt_mgr,
         },
         "recursion_limit": settings.GRAPH_RECURSION_LIMIT,
     }
@@ -251,6 +253,7 @@ async def legal_chat_stream_endpoint(
             "iteration": 0,
         }
 
+        prompt_mgr = getattr(http_request.app.state, "prompt_manager", None)
         config = {
             "configurable": {
                 "thread_id": thread_id,
@@ -258,6 +261,7 @@ async def legal_chat_stream_endpoint(
                 "legal_retriever": retriever,
                 "legalize_api_client": diff_client,
                 "settings": settings,
+                "prompt_manager": prompt_mgr,
             },
             "recursion_limit": settings.GRAPH_RECURSION_LIMIT,
         }

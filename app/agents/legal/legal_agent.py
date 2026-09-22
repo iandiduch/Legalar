@@ -13,30 +13,13 @@ from app.domain.models import AgentRole, ConfidenceLevel, QueryIntent
 from app.schemas.legal.citation import LegalCitation
 from app.services.legal.query_expander import expand_legal_query
 from app.services.legal.retriever import HybridLegalRetriever
+from app.services.prompt_manager import resolve_prompt
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Query rewriting conversacional — patrón estándar de producción RAG
 # ---------------------------------------------------------------------------
-
-_QUERY_REWRITE_PROMPT = """Eres un optimizador de queries para búsqueda en corpus legal argentino.
-
-Dado el historial conversacional y la consulta actual del usuario, genera UNA SOLA frase de
-búsqueda optimizada (máximo 200 caracteres) para recuperar los artículos normativos relevantes.
-
-Reglas:
-- Si la consulta es sustantiva y directa (pregunta sobre una ley, artículo, institución jurídica,
-  derecho concreto, etc.), devólvela sin modificaciones.
-- Si la consulta es una repregunta, aclaración o pedido de simplificación de la respuesta anterior
-  ("no entendí", "explicame mejor", "en criollo", "¿por qué?", "no caí", "no me quedó claro", etc.),
-  reformulá el TEMA LEGAL subyacente de la respuesta anterior del asistente como query de búsqueda concreta.
-- Si la consulta es una RESPUESTA FÁCTICA del usuario aportando datos que el asistente solicitó en el turno previo
-  (ej: aporta fechas de ingreso/egreso, montos de remuneración, antigüedad, si recibió telegrama, tipo de inmueble):
-  identifica la institución jurídica rectora del turno anterior (ej: despido sin causa, indemnización, contrato de locación)
-  y formula una query de búsqueda precisa vinculando el tema legal sustantivo (ej: "LCT 245 indemnizacion despido antiguedad preaviso").
-- Nunca incluyas frases genéricas como "explicar", "aclarar" o "simplificar" en la query resultante.
-- Responde SOLO con la frase de búsqueda optimizada, sin comillas, sin explicaciones."""
 
 
 def _has_prior_ai_context(messages: list) -> bool:
@@ -47,7 +30,7 @@ def _has_prior_ai_context(messages: list) -> bool:
     )
 
 
-async def _rewrite_query_for_retrieval(llm: Any, query: str, messages: list) -> str:
+async def _rewrite_query_for_retrieval(llm: Any, query: str, messages: list, config: RunnableConfig | None = None) -> str:
     """Reescribe la query de retrieval usando el LLM con el contexto conversacional.
 
     Para consultas sustantivas y directas: devuelve la query original sin cambios.
@@ -63,8 +46,9 @@ async def _rewrite_query_for_retrieval(llm: Any, query: str, messages: list) -> 
     # Contexto reducido: últimos 4 mensajes son suficientes para entender el tema
     recent = messages[-4:] if len(messages) > 4 else messages
 
+    rewrite_prompt = await resolve_prompt(config, "query_rewrite")
     rewrite_messages = [
-        SystemMessage(content=_QUERY_REWRITE_PROMPT),
+        SystemMessage(content=rewrite_prompt),
         *recent,
         HumanMessage(content=f"[CONSULTA ACTUAL A OPTIMIZAR]: {query}"),
     ]
@@ -160,37 +144,6 @@ class LegalAnswerPayload(BaseModel):
     )
 
 
-LEGAL_AGENT_PROMPT = """Eres el Agente Legal Especialista en Derecho Argentino.
-Tu función es responder con estricto rigor jurídico a la consulta del usuario, basándote PRIMARIAMENTE
-en los artículos y normas provistos en la evidencia.
-
-Directivas obligatorias:
-1. Responde de forma directa, analítica y profesional en formato Markdown estructurado.
-2. Estilo de apertura y cierre:
-   - PROHIBIDO incluir encabezados epistolares burocráticos de carta ("Estimado/a", "De mi mayor consideración", "Estimado colega") o despedidas formales ("Atentamente", "Quedo a su disposición", "Saludos cordiales").
-   - Si la consulta del usuario inicia con un saludo de cortesía (ej: "Hola", "Buen día"), responde con una apertura cordial breve y natural (ej: "¡Hola! En relación con tu consulta...") antes de entrar directamente a la fundamentación jurídica. Si no hubo saludo en la consulta, ve directo al dictamen jurídico sin introducciones vacías.
-3. Cita siempre la norma y el artículo específico que fundamenta tu afirmación (ej: "Conforme al art. 1198 del Código Civil y Comercial de la Nación (Ley 26.994)...").
-4. Si una reforma reciente (como el DNU 70/2023) modificó el artículo, indícalo expresamente.
-5. Distingue entre normas de orden público (irrenunciables) y normas supletorias (disponibles por las partes).
-6. No inventes artículos ni leyes. Si no hay suficiente información en la evidencia, acláralo con honestidad profesional.
-7. Utiliza lenguaje jurídico claro y accesible, manteniendo la máxima precisión técnica.
-8. PREGUNTAS PROACTIVAS DE ACLARACIÓN ANTE CONSULTAS INCOMPLETAS O CASOS FÁCTICOS INDETERMINADOS:
-   Si la consulta del usuario plantea una situación jurídica a la que le faltan datos de hecho indispensables para determinar con certeza la solución legal, computar un plazo o realizar una liquidación (por ejemplo: reclamo por despido sin fechas ni sueldo, duda locativa sin tipo de inmueble ni fecha contractual, intimación sin causal, deuda sin fecha de mora):
-   a) Explica con claridad el régimen legal rector citando las normas correspondientes de la evidencia.
-   b) Identifica de forma proactiva qué elementos fácticos faltan e incluye una sección titulada '### Para poder precisar tu caso:' con 2 a 4 preguntas puntuales que orienten al usuario sobre qué datos debe aportar para emitir un dictamen concluyente.
-9. PROHIBICIÓN DE CÁLCULOS ARITMÉTICOS Y LIQUIDACIONES NUMÉRICAS EN PESOS:
-   - Bajo ninguna circunstancia realices operaciones matemáticas, sumas, multiplicaciones de haberes o liquidaciones numéricas finales en pesos (los modelos de lenguaje no son calculadoras contables y pueden inducir a error por topes de convenio, SAC proporcional o fallo Vizzoti).
-   - En su lugar:
-     a) Detalla con precisión técnica los rubros indemnizatorios correspondientes conforme a la ley (ej: indemnización por antigüedad art. 245 LCT, preaviso arts. 231/232 LCT, integración de mes de despido art. 233 LCT, SAC proporcional art. 123 LCT, vacaciones no gozadas art. 156 LCT).
-     b) Explica la base de cálculo legal (mejor remuneración mensual, normal y habitual devengada, tope indemnizatorio de convenio colectivo aplicable y doctrina constitucional del 67% fijada por la CSJN en el fallo 'Vizzoti').
-     c) Aclara expresamente que la liquidación numérica final debe ser practicada formalmente por un profesional con los recibos de haberes y las escalas salariales vigentes del CCT aplicable.
-10. IDENTIFICACIÓN CANÓNICA DEL RÉGIMEN DE DESPIDO DE LA LCT:
-    En materia laboral sobre indemnización por despido incausado / antigüedad, cita siempre el artículo 245 de la Ley de Contrato de Trabajo (LCT / Decreto 390/1976 / Ley 20.744) conforme al Texto Ordenado vigente. Jamás utilices numeraciones históricas previas a 1976 (como el art. 266 originario).
-11. DEROGACIONES Y REFORMAS DEL DNU 70/2023:
-    En consultas sobre locaciones habitacionales y desregulación de alquileres, cita expresamente el art. 256 del DNU 70/2023 (que modificó el art. 1198 del CCyC fijando la libertad de plazo convenido) y el art. 249 del DNU 70/2023 (que derogó expresamente la Ley de Alquileres 27.551).
-"""
-
-
 async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> dict[str, Any]:
     """Recupera normas relevantes mediante el retriever híbrido y sintetiza el dictamen legal."""
     configurable = config.get("configurable", {})
@@ -214,10 +167,12 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
         web_snippet = " ".join(clean_lines)[:350].strip()
         search_query = f"{query} {web_snippet}"
     else:
-        search_query = await _rewrite_query_for_retrieval(llm, query, messages_history)
+        search_query = await _rewrite_query_for_retrieval(llm, query, messages_history, config)
 
     # 2. Expansión relacional de la consulta jurídica (análisis multi-norma)
-    analysis = await expand_legal_query(llm, search_query, messages_history)
+    analysis = await expand_legal_query(
+        llm, search_query, messages_history, prompt_manager=configurable.get("prompt_manager")
+    )
 
     # 3. Recuperación híbrida inteligente (PostgreSQL FTS + Pinecone + Normas Canónicas)
     if retriever:
@@ -294,8 +249,9 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
             "y procede a responder la duda jurídica en base a la formulación expresa del usuario."
         )
 
+    legal_prompt = await resolve_prompt(config, "legal_agent")
     system_instruction = (
-        f"{LEGAL_AGENT_PROMPT}\n\n"
+        f"{legal_prompt}\n\n"
         f"EVIDENCIA NORMATIVA DISPONIBLE:\n{evidence_block}"
         f"{context_additions}"
     )

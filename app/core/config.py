@@ -169,12 +169,15 @@ class Settings(BaseSettings):
     GRAPH_RECURSION_LIMIT: int = 25
     STRUCTURED_OUTPUT_MAX_ATTEMPTS: int = 3
 
-    # --- Legalize / Legislación Argentina ---
+    # --- Legalize / Jurisdicción Multi-País ---
+    LEGALIZE_COUNTRY_CODE: str = "ar"
+    LEGALIZE_COUNTRY_NAME: str = "República Argentina"
     LEGALIZE_REPO_PATH: str = "repo_legalize_ar"
     LEGALIZE_API_BASE_URL: str = "https://legalize.dev"
     LEGALIZE_API_KEY: SecretStr = Field(default=SecretStr(""))
     LEGALIZE_API_MONTHLY_LIMIT: int = 2000
     PINECONE_LEGAL_NAMESPACE: str = "ar-legislation"
+    PROMPT_DEFAULTS_DIR: str = "app/agents/prompts/defaults"
 
     # --- Observabilidad & Métricas ---
     PHOENIX_COLLECTOR_ENDPOINT: str = "http://localhost:6006/v1/traces"

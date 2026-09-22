@@ -23,10 +23,11 @@ _RE_COMMIT_TYPE = re.compile(r"^\[(reform|bootstrap|metadata|correction)\]", re.
 
 
 class GitSyncService:
-    """Gestor de sincronización y detección de reformas en el repositorio legalize-ar."""
+    """Gestor de sincronización y detección de reformas en el repositorio de leyes."""
 
-    def __init__(self, repo_path: str = "repo_legalize_ar") -> None:
+    def __init__(self, repo_path: str = "repo_legalize_ar", country_code: str = "ar") -> None:
         self.repo_path = os.path.abspath(repo_path)
+        self.country_code = country_code
 
     def _run_git(self, args: list[str]) -> str:
         res = subprocess.run(
@@ -55,16 +56,21 @@ class GitSyncService:
 
     def detect_changes(self, last_indexed_commit: str | None = None, target_ref: str = "HEAD") -> dict[str, list[str]]:
         """Compara last_indexed_commit contra target_ref para obtener archivos agregados, modificados y eliminados."""
+        country_dir = os.path.join(self.repo_path, self.country_code)
+        target_dir_name = self.country_code
+        if not os.path.exists(country_dir) and os.path.exists(os.path.join(self.repo_path, "ar")):
+            country_dir = os.path.join(self.repo_path, "ar")
+            target_dir_name = "ar"
+
         if not last_indexed_commit:
-            # Si no hay commit previo, todos los archivos en ar/ se consideran agregados
-            ar_dir = os.path.join(self.repo_path, "ar")
-            if not os.path.exists(ar_dir):
+            # Si no hay commit previo, todos los archivos del directorio nacional se consideran agregados
+            if not os.path.exists(country_dir):
                 return {"added": [], "modified": [], "deleted": []}
-            all_files = [f"ar/{f}" for f in os.listdir(ar_dir) if f.endswith(".md")]
+            all_files = [f"{target_dir_name}/{f}" for f in os.listdir(country_dir) if f.endswith(".md")]
             return {"added": all_files, "modified": [], "deleted": []}
 
         diff_output = self._run_git(
-            ["diff", "--name-status", last_indexed_commit, target_ref, "--", "ar/"]
+            ["diff", "--name-status", last_indexed_commit, target_ref, "--", f"{target_dir_name}/"]
         )
 
         added = []

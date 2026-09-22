@@ -11,18 +11,9 @@ from app.domain.models import ConfidenceLevel
 from app.schemas.legal.diff import DiffResponse
 from app.services.legal.diff_parser import build_diff_block_data
 from app.services.legal.legalize_api_client import LegalizeApiClient
+from app.services.prompt_manager import resolve_prompt
 
 logger = logging.getLogger(__name__)
-
-DIFF_EXPLANATION_PROMPT = """Eres un jurista y docente de derecho argentino.
-Tu función es explicar de manera breve, clara y en lenguaje ciudadano qué cambió en la práctica jurídica a partir de las siguientes líneas modificadas de un artículo normativo.
-
-REGLAS ESTRICTAS:
-1. Máximo 2 párrafos concisos (menos de 150 palabras).
-2. Explica qué decía antes (líneas '-') y qué rige ahora (líneas '+').
-3. NO uses saludos, ni despedidas, ni cartas. Ve directo a la explicación fáctica.
-4. Basa tu explicación ÚNICAMENTE en las líneas provistas.
-"""
 
 
 def _extract_atomic_diff_chunk(unified_diff: str, max_lines: int = 40) -> str:
@@ -147,10 +138,11 @@ async def diff_node(state: LegalAgentState, config: RunnableConfig) -> dict[str,
             f"NORMA: {law_id} (Artículo {art_num or 'general'})\n"
             f"LÍNEAS MODIFICADAS:\n```diff\n{atomic_diff}\n```"
         )
+        diff_prompt = await resolve_prompt(config, "diff_explanation")
         try:
             res = await asyncio.wait_for(
                 llm.ainvoke([
-                    SystemMessage(content=DIFF_EXPLANATION_PROMPT),
+                    SystemMessage(content=diff_prompt),
                     SystemMessage(content=prompt_content),
                 ]),
                 timeout=8.0,

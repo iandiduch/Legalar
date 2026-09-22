@@ -217,35 +217,41 @@ async def run_bootstrap(args: argparse.Namespace) -> None:
 
     # Determinar qué leyes indexar
     files_to_process: list[str] = []
-    ar_dir = os.path.join(settings.LEGALIZE_REPO_PATH, "ar")
-    if not os.path.exists(ar_dir):
-        print(f"ERROR: No se encontró la carpeta 'ar' en {settings.LEGALIZE_REPO_PATH}")
+    country_code = getattr(settings, "LEGALIZE_COUNTRY_CODE", "ar")
+    country_dir = os.path.join(settings.LEGALIZE_REPO_PATH, country_code)
+    target_dir_name = country_code
+    if not os.path.exists(country_dir) and os.path.exists(os.path.join(settings.LEGALIZE_REPO_PATH, "ar")):
+        country_dir = os.path.join(settings.LEGALIZE_REPO_PATH, "ar")
+        target_dir_name = "ar"
+
+    if not os.path.exists(country_dir):
+        print(f"ERROR: No se encontró la carpeta '{country_code}' en {settings.LEGALIZE_REPO_PATH}")
         sys.exit(1)
 
     if args.laws:
         specified = [l.strip().upper() for l in args.laws.split(",") if l.strip()]
         for law_id in specified:
             fname = f"{law_id}.md"
-            if os.path.exists(os.path.join(ar_dir, fname)):
-                files_to_process.append(f"ar/{fname}")
+            if os.path.exists(os.path.join(country_dir, fname)):
+                files_to_process.append(f"{target_dir_name}/{fname}")
             else:
-                print(f"[!] Aviso: No se encontró el archivo ar/{fname}")
+                print(f"[!] Aviso: No se encontró el archivo {target_dir_name}/{fname}")
 
     elif args.priority:
-        print("\n-> Seleccionando catálogo de leyes prioritarias...")
+        print(f"\n-> Seleccionando catálogo de leyes prioritarias ({settings.LEGALIZE_COUNTRY_NAME})...")
         for law_id in PRIORITY_LAWS:
             fname = f"{law_id}.md"
-            if os.path.exists(os.path.join(ar_dir, fname)):
-                files_to_process.append(f"ar/{fname}")
+            if os.path.exists(os.path.join(country_dir, fname)):
+                files_to_process.append(f"{target_dir_name}/{fname}")
             else:
-                print(f"[!] Ley prioritaria no hallada: ar/{fname}")
+                print(f"[!] Ley prioritaria no hallada: {target_dir_name}/{fname}")
 
     elif args.all:
-        print("\n-> Modo completo: escaneando todas las normas en ar/...")
-        all_mds = sorted([f for f in os.listdir(ar_dir) if f.endswith(".md")])
+        print(f"\n-> Modo completo: escaneando todas las normas en {target_dir_name}/...")
+        all_mds = sorted([f for f in os.listdir(country_dir) if f.endswith(".md")])
         if args.limit:
             all_mds = all_mds[: args.limit]
-        files_to_process = [f"ar/{f}" for f in all_mds]
+        files_to_process = [f"{target_dir_name}/{f}" for f in all_mds]
 
     else:
         print("\nDebe especificar una modalidad: --priority, --laws LEY-1234, o --all")

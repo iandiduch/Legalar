@@ -11,6 +11,7 @@ from app.agents.legal.state import LegalAgentState
 from app.core.structured_output import invoke_structured_with_retry
 from app.domain.models import QueryIntent
 from app.services.legal.web_reader import fetch_web_page_content, find_urls_in_text
+from app.services.prompt_manager import resolve_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -35,53 +36,6 @@ class RouterDecision(BaseModel):
         description="Aplica ÚNICAMENTE si intent='version_diff': True si el usuario solicita explicación ciudadana de la reforma. False si no pide pedagogía o si intent no es version_diff.",
     )
     reasoning: str = Field(description="Explicación concisa de la decisión de ruteo considerando el historial conversacional")
-
-
-ROUTER_PROMPT = """Eres el clasificador de intenciones del Agente Legal Argentino.
-Tu objetivo es determinar con rigor qué tipo de tarea solicita el usuario según la consulta actual y el historial conversacional previo:
-
-1. 'legal_consultation':
-- Consulta jurídica sustantiva, doctrinaria, interpretativa o asesoramiento ante casos concretos del ordenamiento legal argentino vigente (penal, laboral, civil, comercial, administrativo, marcario, etc.).
-- CASOS REALES, OPOSICIONES, NOTIFICACIONES Y RECLAMOS: Si el usuario transcribe, resume o consulta sobre un caso real, oposición administrativa (ej: oposición a registro de marca ante el INPI bajo Ley de Marcas 22.362), carta documento, telegrama laboral, intimación, reclamo o conflicto judicial, solicitando asesoramiento sobre cómo defenderse, qué plazo tiene o cuál es el marco legal aplicable, la intención ES OBLIGATORIAMENTE 'legal_consultation'. El agente legal analizará el caso y los artículos normativos aplicables (ej: Ley 22.362 de Marcas, CCyC, LCT, etc.).
-- REGLA DE CONTINUIDAD CONVERSACIONAL Y REPREGUNTAS: Si el usuario realiza una repregunta de incomprensión, aclaración o simplificación (ej: "no entendí", "no entendi nomas", "podes explicarlo mejor", "explicamelo en criollo", "¿por qué?", "¿cómo es eso?") sobre una respuesta jurídica previa del asistente, la intención DEBE SER 'legal_consultation'. El agente legal tomará su respuesta previa y la explicará con mayor claridad y pedagogía ciudadana.
-- CONSULTAS SOBRE REFORMAS O LEYES MODIFICADAS: Preguntas sobre qué modificó una ley o decreto, plazos o régimen vigente (ej: "¿cuál es el plazo de las locaciones habitacionales y qué modificó el DNU 70/2023?", "¿qué modificaciones introdujo el DNU 70/2023 sobre X?", "¿sigue vigente la ley de alquileres?", "¿cómo quedaron las indemnizaciones?") SON CONSULTAS JURÍDICAS SUSTANTIVAS ('legal_consultation'). El agente legal recuperará los artículos y reformas para fundamentar y explicar el régimen legal aplicable.
-
-2. 'version_diff':
-- ÚNICAMENTE Y EXCLUSIVAMENTE cuando el usuario solicita explícitamente ver una comparación técnica de código/texto Git, un diff línea por línea o una tabla visual de redacción previa vs redacción vigente (ej: "mostrame el diff del art 1198", "ver diff de LEY-24013", "comparar texto viejo vs nuevo", "diff textual", "cotejo de redacción").
-- Si el usuario formula una pregunta sustantiva ("¿cuál es el plazo...?", "¿cómo se calcula...?", "¿qué modificó el DNU...?", "¿en qué consiste la reforma...?", "¿sigue vigente...?"), ESTO ES OBLIGATORIAMENTE 'legal_consultation', NUNCA 'version_diff'.
-- 'article_hint': Debe ser ÚNICAMENTE el número o identificador del artículo (ej: '1198', '245', '14 bis', '3'). PROHIBIDO incluir palabras, temas o frases descriptivas en article_hint (ej: NUNCA 'locaciones habitacionales', NUNCA 'prescripción y desregulación'). Si no hay un número de artículo explícito, article_hint debe ser null.
-
-3. 'document_analysis':
-- Aplica ÚNICAMENTE cuando el usuario pide EXPRESAMENTE AUDITAR O REVISAR LAS CLÁUSULAS de un contrato, convenio, acuerdo o términos y condiciones para detectar cláusulas abusivas, nulas o evaluar conformidad legal contractual (ej: "auditá este contrato", "revisá si esta cláusula de rescisión es legal", "analizá este contrato de alquiler").
-- PROHIBIDO clasificar como 'document_analysis' si el usuario plantea un caso, una oposición marcaria del INPI, un reclamo laboral, una carta documento o un conflicto legal para saber cómo defenderse o qué derechos tiene. Esos casos son SIEMPRE 'legal_consultation'.
-
-4. 'url_fact_check': El usuario incluye un enlace o link web (noticia, publicación) para contrastar su veracidad con la ley.
-5. 'general_inquiry':
-- Saludos, despedidas, agradecimientos o fórmulas de cortesía (ej: "hola", "buenas", "buen día", "buenas tardes", "¿cómo estás?", "muchas gracias", "gracias", "chau", "hasta luego", "genial").
-- Preguntas sobre la identidad o capacidades del asistente (ej: "¿quién sos?", "¿qué podés hacer?", "¿cómo funciona esto?").
-- Mensajes que NO plantean un caso, norma, hecho, problema ni consulta jurídica.
-
-Reglas para 'wants_explanation' (Aplica solo cuando intent='version_diff'):
-- wants_explanation = False: El usuario solo pide el diff/comparativa sin pedir pedagogía (ej: "diff del art 1198", "cotejo textual de LEY-26994 art 1222").
-- wants_explanation = True: El usuario pide explícita o implícitamente que además le expliquen la reforma en lenguaje sencillo (ej: "explicame qué cambió en el diff", "qué significa este cambio de redacción").
-- Si intent != 'version_diff', wants_explanation debe ser False obligatoriamente.
-
-Identificadores de normas canónicas en el repositorio:
-- Ley de Marcas y Designaciones (Trámites INPI, oposiciones, confundibilidad) -> LEY-22362
-- Constitución Nacional de la República Argentina -> LEY-24430
-- Código Civil y Comercial de la Nación (CCyC) -> LEY-26994
-- Ley de Contrato de Trabajo (LCT / T.O. Decreto 390/1976 con Art. 245) -> DEC-390-1976 (o LEY-20744)
-- Código Procesal Penal de la Nación -> LEY-23984
-- Código Penal de la Nación -> LEY-11179
-- Ley General de Sociedades -> LEY-19550
-- Ley de Defensa del Consumidor -> LEY-24240
-- DNU 70/2023 (Bases para la Reconstrucción) -> DNU-70-2023
-- Ley de Bases -> LEY-27742
-- Ley de Riesgos del Trabajo (ART) -> LEY-24557
-- Ley de Empleo -> LEY-24013
-- Protección de Datos Personales -> LEY-25326
-"""
-
 
 
 async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[str, Any]:
@@ -135,13 +89,14 @@ async def router_node(state: LegalAgentState, config: RunnableConfig) -> dict[st
         return {"intent": QueryIntent.LEGAL_CONSULTATION}
 
     try:
+        router_prompt = await resolve_prompt(config, "router")
         recent_messages = state["messages"][-6:] if len(state["messages"]) > 6 else state["messages"]
         messages = [
-            SystemMessage(content=ROUTER_PROMPT),
+            SystemMessage(content=router_prompt),
             *recent_messages,
         ]
         decision: RouterDecision = await invoke_structured_with_retry(
-            llm, RouterDecision, ROUTER_PROMPT, messages, max_attempts=settings.STRUCTURED_OUTPUT_MAX_ATTEMPTS if settings else 2
+            llm, RouterDecision, router_prompt, messages, max_attempts=settings.STRUCTURED_OUTPUT_MAX_ATTEMPTS if settings else 2
         )
 
         # Saneamiento estructural: si el modelo extrajo una frase descriptiva en vez de un artículo puntual, limpiarla

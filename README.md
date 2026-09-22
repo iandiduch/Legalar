@@ -396,16 +396,100 @@ Cada norma incluye en su frontmatter estructurado el grado de fidelidad de su tr
 
 ---
 
-## ⚠️ 11. Limitaciones Conocidas del Dataset
+## 🌐 11. Arquitectura Multi-País y Sustitución de Jurisdicciones (Legalize.dev)
 
-- **Anexos y Tablas en Formato Imagen**: Tablas tarifarias o escalas numéricas publicadas históricamente como imágenes escaneadas en InfoLEG (ej: anexos de la Ley 27.430) son omitidas en el parseo a texto Markdown (indicadas bajo `extra.images_dropped`).
-- **Resoluciones de Actualización Numérica**: Resoluciones administrativas que actualizan montos variables (como límites de capital de la Ley 19.550 o topes de multas por inflación) no modifican el articulado formal en V1.
-- **Ventana de Actualización**: El catálogo oficial InfoLEG se regenera el día 1 de cada mes y `legalize-ar` se actualiza el día 2. La sincronización incremental (`POST /api/v1/legal/sync`) opera en concordancia con este ciclo mensual.
-- **Alcance Territorial V1**: Abarca la legislación nacional de la República Argentina. La legislación provincial (23 provincias y CABA) forma parte del roadmap para V2.
+El motor orquestador de agentes (LangGraph), el parser estructural de AST normativo y el motor de diff local son **completamente agnósticos de la jurisdicción**. Por defecto, el sistema incluye la implementación de referencia y catálogo de directivas para la **República Argentina** (`ar`), pero está diseñado para operar con cualquier repositorio de leyes versionadas del ecosistema de código abierto **[Legalize](https://legalize.dev)** (Chile, Uruguay, Colombia, México, España, etc.).
+
+```mermaid
+graph TD
+    subgraph "Jurisdicción Configurable"
+        ENV["Variables de Entorno<br/>LEGALIZE_COUNTRY_CODE<br/>LEGALIZE_REPO_PATH<br/>PINECONE_LEGAL_NAMESPACE"]
+        MD_PROMPTS["Directivas en Markdown<br/>app/agents/prompts/defaults/*.md<br/>(router, legal_agent, validator, etc.)"]
+        GIT_REPO["Repositorio Git Legalize<br/>(repo_legalize_{country}/{country}/)"]
+    end
+
+    subgraph "Motor Universal de Producción"
+        PM["PromptManager<br/>(RAM Cache + DB Hot-Reload + Disk Fallback)"]
+        DIFF["LocalGitDiffEngine & GitSyncService<br/>(Diffs atómicos y sincronización)"]
+        GRAPH["LangGraph Orchestrator<br/>(Router -> Agent / Auditor / Diff -> Validator)"]
+        STORE["PostgreSQL FTS + Pinecone Vectorial"]
+    end
+
+    ENV --> PM
+    ENV --> DIFF
+    ENV --> STORE
+    MD_PROMPTS --> PM
+    GIT_REPO --> DIFF
+    PM --> GRAPH
+    DIFF --> GRAPH
+    STORE --> GRAPH
+```
+
+### Pasos para conectar un nuevo país:
+
+#### 1. Clonar el repositorio nacional de Legalize
+En la raíz del proyecto, clonar el repositorio Git de la legislación del país destino:
+```bash
+# Ejemplo: República de Chile
+git clone https://github.com/legalize-dev/legalize-cl repo_legalize_cl
+
+# Ejemplo: República Oriental del Uruguay
+git clone https://github.com/legalize-dev/legalize-uy repo_legalize_uy
+```
+
+#### 2. Declarar las variables en tu archivo `.env`
+Definir el código de país ISO, el nombre de la jurisdicción, la ruta del repositorio y el namespace vectorial:
+```env
+# Configuración para Chile
+LEGALIZE_COUNTRY_CODE=cl
+LEGALIZE_COUNTRY_NAME="República de Chile"
+LEGALIZE_REPO_PATH=repo_legalize_cl
+PINECONE_LEGAL_NAMESPACE=cl-legislation
+```
+
+#### 3. Personalizar directivas en Markdown (`app/agents/prompts/defaults/`)
+Todos los system prompts del pipeline están 100% desacoplados de Python en archivos Markdown editables:
+
+| Archivo Prompt | Rol en el Pipeline | Adaptación Jurisdiccional |
+|---|---|---|
+| `router.md` | Clasificador de intenciones | Declarar identificadores canónicos locales (ej. Código del Trabajo, Código Civil local). |
+| `legal_agent.md` | Agente legal sustantivo | Directivas dogmáticas, fallos plenarios de referencia y principios rectores locales. |
+| `query_rewrite.md` | Reescritura para búsqueda | Reglas para optimizar queries hacia el corpus del nuevo país. |
+| `query_expander.md` | Descomposición multi-norma | Articulación entre Parte General y Especial del derecho local (prescripción, indemnizaciones). |
+| `document_analyzer.md`| Auditoría contractual | Leyes de protección al consumidor y normas de orden público del nuevo país. |
+| `validator.md` | Auditoría de fidelidad y vigencia | Control de leyes abrogadas o reformas estructurales locales. |
+| `general_inquiry.md` | Saludos y capacidades | Presentación institucional y nombre del asistente para la nueva jurisdicción. |
+| `diff_explanation.md`| Explicación ciudadana de reformas| Tono pedagógico para cotejos normativos texto viejo vs texto nuevo. |
+
+> [!TIP]
+> **Actualización en Caliente:** Podés modificar los prompts directamente en los archivos `.md` o actualizarlos en caliente sin reiniciar los servidores mediante la API administrativa:
+> `PUT /api/v1/prompts/{agent_id}` con el payload `{ "content": "Nuevo prompt..." }`.
+
+#### 4. Inicializar base de datos e indexar la legislación
+Ejecutar la creación de esquemas y el bootstrap del nuevo corpus:
+```bash
+# Siembra de tablas y carga de los prompts .md
+python -m scripts.init_db
+
+# Indexación del corpus completo o de normas prioritarias
+python -m scripts.legal_bootstrap --all --limit 100
+
+# O indexación selectiva por identificadores de norma
+python -m scripts.legal_bootstrap --laws COD-CIVIL,COD-TRABAJO
+```
 
 ---
 
-## ⚖️ 12. Descargo de Responsabilidad (Legal Disclaimer)
+## ⚠️ 12. Limitaciones Conocidas del Dataset
+
+- **Anexos y Tablas en Formato Imagen**: Tablas tarifarias o escalas numéricas publicadas históricamente como imágenes escaneadas en boletines oficiales son omitidas en el parseo a texto Markdown (indicadas bajo `extra.images_dropped`).
+- **Resoluciones de Actualización Numérica**: Resoluciones administrativas que actualizan montos variables o topes de multas no modifican el articulado formal consolidado en V1.
+- **Ventana de Actualización**: La sincronización incremental (`POST /api/v1/legal/sync`) opera en concordancia con el ciclo de actualización de los repositorios de Legalize.dev.
+- **Alcance Territorial V1**: Abarca la legislación nacional consolidada. La legislación provincial o estadual forma parte del roadmap para V2.
+
+---
+
+## ⚖️ 13. Descargo de Responsabilidad (Legal Disclaimer)
 
 > **AVISO LEGAL:** Este sistema de Inteligencia Artificial y motor de RAG legal tiene fines exclusivamente informativos, pedagógicos y de apoyo a la investigación jurídica. Las respuestas generadas por los modelos de lenguaje, el análisis de contratos y las citas normativas suministradas no constituyen dictamen jurídico vinculante, ni asesoramiento legal formal, ni sustituyen en ningún caso el criterio, análisis ni patrocinio letrado obligatorio de un abogado profesional matriculado en la jurisdicción competente. Ni los desarrolladores ni los proveedores de datos asumen responsabilidad por decisiones legales, contractuales o judiciales adoptadas con base en la información brindada por esta herramienta.
 

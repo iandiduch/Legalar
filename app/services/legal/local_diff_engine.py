@@ -22,8 +22,9 @@ logger = logging.getLogger(__name__)
 class LocalGitDiffEngine:
     """Motor de diffs locales ejecutando Git nativo sobre el repositorio de leyes."""
 
-    def __init__(self, repo_path: str = "repo_legalize_ar") -> None:
+    def __init__(self, repo_path: str = "repo_legalize_ar", country_code: str = "ar") -> None:
         self.repo_path = os.path.abspath(repo_path)
+        self.country_code = country_code
         if not os.path.exists(os.path.join(self.repo_path, ".git")):
             logger.warning("El directorio %s no contiene un repositorio Git válido.", self.repo_path)
 
@@ -62,9 +63,13 @@ class LocalGitDiffEngine:
     def _resolve_paths(self, law_identifier: str) -> tuple[str, str]:
         """Resuelve la ruta relativa y absoluta asegurando que no haya escape de directorio."""
         clean_id = self._clean_id(law_identifier)
-        rel_path = f"ar/{clean_id}.md"
         norm_repo = os.path.abspath(self.repo_path)
-        disk_path = os.path.abspath(os.path.join(norm_repo, "ar", f"{clean_id}.md"))
+        sub_dir = self.country_code
+        if not os.path.exists(os.path.join(norm_repo, sub_dir)) and os.path.exists(os.path.join(norm_repo, "ar")):
+            sub_dir = "ar"
+
+        rel_path = f"{sub_dir}/{clean_id}.md"
+        disk_path = os.path.abspath(os.path.join(norm_repo, sub_dir, f"{clean_id}.md"))
         try:
             if os.path.commonpath([disk_path, norm_repo]) != norm_repo:
                 raise ValueError("Path traversal detectado fuera del repositorio.")
