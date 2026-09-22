@@ -81,14 +81,16 @@ flowchart LR
         ROUTER -->|Consulta / Repregunta| LEG[Legal Agent · RAG Híbrido Relacional]
         ROUTER -->|Auditoría de contrato| DOC[Document Analyzer · File Parser Seguro]
         ROUTER -->|Comparar reformas / historial| DIFF[Diff Node · Git Local]
+        ROUTER -->|Saludo / Capacidades| GI[General Inquiry · Instantáneo]
         ROUTER -.->|Enlace web a auditar| WEB[Web Reader SSRF-Safe]
 
         WEB -->|Evidencia externa| LEG
         LEG --> VAL[Validador Jurídico]
         DOC --> VAL
-        DIFF --> END_OK([END · Comparativa Inmutable])
+        DIFF --> END_DIFF([END · Comparativa Inmutable])
+        GI --> END_GI([END · Respuesta Instantánea])
 
-        VAL -->|Dictamen validado| END_OK([END · Respuesta con Citas])
+        VAL -->|Dictamen validado| END_VAL([END · Dictamen con Citas])
 
         GRAPH <-->|Checkpoints de estado| CP[(PostgreSQL<br/>AsyncPostgresSaver)]
     end
@@ -195,7 +197,7 @@ REDIS_PORT=6379
    python -m scripts.init_db
    ```
 
-2. **Ingestar las 10 leyes estructurales argentinas**:
+2. **Ingestar las 46 leyes prioritarias argentinas**:
    ```bash
    # Con generación de vectores en Pinecone (OpenRouter):
    python -m scripts.legal_bootstrap --priority
@@ -345,7 +347,7 @@ El sistema cuenta con una arquitectura de alta concurrencia diseñada para sopor
 
 ## 🏆 8. Evaluación RAG (Golden Set & LLM-as-a-Judge)
 
-Para validar objetivamente el rigor normativo y la fidelidad del pipeline, se utiliza un harness automatizado con **LLM-as-a-Judge** ([`scripts/evaluate_rag.py`](scripts/evaluate_rag.py)) contra el conjunto curado ([`data/golden_set.json`](data/golden_set.json)):
+Para validar objetivamente el rigor normativo y la fidelidad del pipeline, se utiliza un harness automatizado con **LLM-as-a-Judge** ([`scripts/evaluate_rag.py`](scripts/evaluate_rag.py)) contra el conjunto curado de **34 casos de prueba de referencia** ([`data/golden_set.json`](data/golden_set.json)) que auditan el catálogo de las 46 leyes prioritarias:
 
 ```bash
 python -m scripts.evaluate_rag
@@ -354,7 +356,8 @@ python -m scripts.evaluate_rag
 Métricas evaluadas:
 - **Faithfulness**: Evalúa que la respuesta afirme únicamente hechos respaldados en los artículos citados.
 - **Answer Relevance**: Evalúa que responda de forma directa y fundada a la consulta planteada.
-- **Validation Guardrail**: Verifica que no cite leyes derogadas (ej: rechazo de vigencia de la Ley 27.551 por aplicación del DNU 70/2023).
+- **Validation Guardrail**: Verifica que no cite leyes derogadas (ej: rechazo de vigencia de la Ley 27.551 por aplicación del DNU 70/2023) y aplique reformas laborales y civiles vigentes.
+- **Coverage & Multi-Norma**: Audita la articulación correcta entre Parte Especial y Parte General (prescripción penal, LCT 245 y topes, garantías de consumo y compras a distancia, marcas ante INPI).
 
 ---
 
