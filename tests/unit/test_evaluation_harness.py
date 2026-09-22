@@ -6,9 +6,9 @@ from scripts.evaluate_rag import _evaluate_ground_truth, _load_golden_set
 
 
 def test_load_golden_set_valid_schema():
-    """Valida que data/golden_set.json contenga las 10 preguntas y valide contra GoldenSetItem."""
+    """Valida que data/golden_set.json contenga las preguntas del catálogo ampliado y valide contra GoldenSetItem."""
     items = _load_golden_set()
-    assert len(items) == 10
+    assert len(items) == 34
     for item in items:
         assert isinstance(item.question, str)
         assert len(item.question) > 10

@@ -3,58 +3,202 @@
     "question": "¿Cuál es el plazo de las locaciones habitacionales y qué modificó el DNU 70/2023?",
     "expected_source": ["LEY-26994", "DNU-70-2023"],
     "expected_article": ["1198", "256"],
-    "expected_answer_contains": ["plazo", "acuerden"]
+    "expected_answer_contains": ["plazo", "acuerden", "2 años", "dos años"]
   },
   {
-    "question": "¿Cómo se calcula la indemnización por despido sin justa causa según la Ley de Contrato de Trabajo?",
-    "expected_source": ["LEY-20744", "DEC-390-1976"],
-    "expected_article": "245",
-    "expected_answer_contains": ["mes de sueldo", "antigüedad"]
+    "question": "¿Cómo quedaron regulados los ajustes de precio y los depósitos en garantía en contratos de alquiler habitacional tras el DNU 70/2023?",
+    "expected_source": ["LEY-26994", "DNU-70-2023"],
+    "expected_article": ["1196", "1199", "255", "257"],
+    "expected_answer_contains": ["depósito", "garantía", "moneda", "índice", "ajuste"]
   },
   {
-    "question": "¿Cuál es el plazo de garantía legal para cosas muebles no consumibles según la Ley de Defensa del Consumidor?",
-    "expected_source": "LEY-24240",
-    "expected_article": "11",
-    "expected_answer_contains": ["meses", "tres", "seis"]
-  },
-  {
-    "question": "¿Qué consagra el artículo 14 bis de la Constitución Nacional respecto a la protección del trabajo?",
-    "expected_source": "LEY-24430",
-    "expected_article": "14 bis",
-    "expected_answer_contains": ["condiciones dignas", "trabajo"]
-  },
-  {
-    "question": "¿Cuáles son las causales de disolución de una sociedad según la Ley General de Sociedades?",
-    "expected_source": "LEY-19550",
-    "expected_article": "94",
-    "expected_answer_contains": ["disuelve", "disolución"]
-  },
-  {
-    "question": "¿Cuál es el plazo genérico de la prescripción liberatoria en el Código Civil y Comercial de la Nación (salvo plazo especial)?",
-    "expected_source": "LEY-26994",
-    "expected_article": "2560",
-    "expected_answer_contains": ["cinco (5) años", "cinco años", "5 años"]
-  },
-  {
-    "question": "¿Qué establece la ley sobre el pago de la remuneración exclusivamente en mercadería o especie?",
-    "expected_source": ["LEY-20744", "DEC-390-1976"],
-    "expected_article": ["105", "107", "116"],
-    "expected_answer_contains": ["dinero", "especie", "20%"]
-  },
-  {
-    "question": "¿Qué principios y reformas principales introdujo el Título II del DNU 70/2023 en materia de desregulación económica?",
-    "expected_source": "DNU-70-2023",
-    "expected_article": ["2", "3", "70"],
-    "expected_answer_contains": ["desregulación", "economía", "derogación"]
+    "question": "¿Cuáles son las condiciones y penalidades para la rescisión o resolución anticipada del contrato de alquiler por el locatario según el Código Civil y Comercial reformado?",
+    "expected_source": ["LEY-26994", "DNU-70-2023"],
+    "expected_article": ["1221", "262"],
+    "expected_answer_contains": ["10%", "diez por ciento", "resolución", "rescisión"]
   },
   {
     "question": "¿Sigue vigente el plazo mínimo obligatorio de tres años de la Ley de Alquileres 27.551?",
     "expected_source": ["DNU-70-2023", "LEY-26994", "LEY-27551"],
     "expected_article": ["249", "256", "1198"],
-    "expected_answer_contains": ["derogada", "derogó", "no rige"]
+    "expected_answer_contains": ["derogada", "derogó", "no rige", "derogación"]
   },
   {
-    "question": "¿Cuáles son los precios de pasajes de avión y hoteles para viajar a Madrid?",
+    "question": "¿Cómo se calcula la indemnización por despido sin justa causa según la Ley de Contrato de Trabajo y qué tope aplica?",
+    "expected_source": ["LEY-20744", "DEC-390-1976", "LEY-27802"],
+    "expected_article": "245",
+    "expected_answer_contains": ["mes de sueldo", "antigüedad", "tope", "remuneración"]
+  },
+  {
+    "question": "¿Cuáles son los plazos de preaviso que debe otorgar el empleador y el trabajador según la Ley de Contrato de Trabajo?",
+    "expected_source": ["DEC-390-1976", "LEY-20744"],
+    "expected_article": ["231", "232"],
+    "expected_answer_contains": ["preaviso", "quince días", "un mes", "dos meses", "días"]
+  },
+  {
+    "question": "¿Cuál es la duración del período de prueba en el contrato de trabajo por tiempo indeterminado?",
+    "expected_source": ["DEC-390-1976", "LEY-20744", "LEY-25877", "LEY-27802"],
+    "expected_article": ["92 bis", "92"],
+    "expected_answer_contains": ["período de prueba", "prueba", "meses"]
+  },
+  {
+    "question": "¿Qué trámite debe cumplirse ante las comisiones médicas en caso de un accidente laboral según la Ley de Riesgos del Trabajo?",
+    "expected_source": ["LEY-24557"],
+    "expected_article": ["6", "21", "22", "46"],
+    "expected_answer_contains": ["comisión médica", "art", "accidente", "incapacidad"]
+  },
+  {
+    "question": "¿Cuál es el límite legal de la jornada ordinaria de trabajo diurno según la Ley 11.544?",
+    "expected_source": ["LEY-11544", "DEC-390-1976"],
+    "expected_article": ["1", "201"],
+    "expected_answer_contains": ["8 horas", "ocho horas", "48 horas", "cuarenta y ocho"]
+  },
+  {
+    "question": "¿Es obligatorio el trámite de conciliación laboral previa ante el SECLO antes de iniciar una demanda judicial en la Ciudad de Buenos Aires?",
+    "expected_source": ["LEY-24635"],
+    "expected_article": ["1", "4", "7"],
+    "expected_answer_contains": ["seclo", "conciliación", "obligatoria", "instancia previa"]
+  },
+  {
+    "question": "¿Qué indemnización le corresponde al personal de casas particulares en caso de despido sin causa según la Ley 26.844?",
+    "expected_source": ["LEY-26844"],
+    "expected_article": ["46", "48"],
+    "expected_answer_contains": ["un mes de sueldo", "antigüedad", "indemnización"]
+  },
+  {
+    "question": "¿Cuáles son los requisitos de edad y años de aportes para acceder a la jubilación ordinaria en el Sistema Integrado de Jubilaciones y Pensiones (Ley 24.241)?",
+    "expected_source": ["LEY-24241"],
+    "expected_article": ["19"],
+    "expected_answer_contains": ["60", "65", "30 años", "aportes"]
+  },
+  {
+    "question": "¿Cuál es el plazo genérico de la prescripción liberatoria en el Código Civil y Comercial de la Nación?",
+    "expected_source": "LEY-26994",
+    "expected_article": "2560",
+    "expected_answer_contains": ["cinco (5) años", "cinco años", "5 años"]
+  },
+  {
+    "question": "¿Cuál es la vigencia temporal del registro de una marca ante el INPI y cómo puede renovarse conforme a la Ley 22.362?",
+    "expected_source": ["LEY-22362"],
+    "expected_article": ["5", "10"],
+    "expected_answer_contains": ["diez años", "10 años", "renovación", "inpi"]
+  },
+  {
+    "question": "¿Cuáles son las causales de disolución de una sociedad según la Ley General de Sociedades 19.550?",
+    "expected_source": "LEY-19550",
+    "expected_article": "94",
+    "expected_answer_contains": ["disuelve", "disolución", "causales"]
+  },
+  {
+    "question": "¿Qué ventajas y características principales tienen las Sociedades por Acciones Simplificadas (SAS) bajo la Ley 27.349?",
+    "expected_source": ["LEY-27349"],
+    "expected_article": ["33", "36", "58"],
+    "expected_answer_contains": ["sas", "simplificada", "digital", "unipersonal"]
+  },
+  {
+    "question": "¿Cuál es el plazo de presentación al cobro de un cheque común y qué plazo prescribe la acción de cobro según la Ley de Cheques?",
+    "expected_source": ["LEY-24452"],
+    "expected_article": ["25", "38", "61"],
+    "expected_answer_contains": ["30 días", "treinta días", "presentación", "cheque"]
+  },
+  {
+    "question": "¿Qué principio registral consagra el tracto sucesivo abreviado según la Ley 17.801 de Registro de la Propiedad Inmueble?",
+    "expected_source": ["LEY-17801"],
+    "expected_article": ["15", "16"],
+    "expected_answer_contains": ["tracto sucesivo", "inscripción", "registro", "inmueble"]
+  },
+  {
+    "question": "¿Qué diferencia legal existe entre la firma digital y la firma electrónica según la Ley 25.506?",
+    "expected_source": ["LEY-25506"],
+    "expected_article": ["2", "3", "5"],
+    "expected_answer_contains": ["firma digital", "firma electrónica", "validez", "presunción"]
+  },
+  {
+    "question": "¿Cuál es el plazo legal que tiene el asegurado para denunciar un siniestro ante la compañía de seguros según la Ley 17.418?",
+    "expected_source": ["LEY-17418"],
+    "expected_article": ["46"],
+    "expected_answer_contains": ["tres días", "3 días", "denuncia", "siniestro"]
+  },
+  {
+    "question": "¿Cuál es el plazo de garantía legal para cosas muebles no consumibles según la Ley de Defensa del Consumidor?",
+    "expected_source": "LEY-24240",
+    "expected_article": "11",
+    "expected_answer_contains": ["meses", "tres", "seis", "3", "6"]
+  },
+  {
+    "question": "¿En qué casos procede la sanción por daño punitivo según el artículo 52 bis de la Ley de Defensa del Consumidor?",
+    "expected_source": ["LEY-24240"],
+    "expected_article": ["52 bis"],
+    "expected_answer_contains": ["daño punitivo", "punitivo", "multa civil", "proveedor"]
+  },
+  {
+    "question": "¿Por cuánto tiempo pueden conservarse los datos crediticios desfavorables en informes como el Veraz según la Ley de Protección de Datos Personales 25.326?",
+    "expected_source": ["LEY-25326"],
+    "expected_article": ["26"],
+    "expected_answer_contains": ["cinco años", "5 años", "dos años", "2 años", "informe"]
+  },
+  {
+    "question": "¿Cuál es el plazo máximo que tienen los organismos obligados para responder una solicitud de acceso a la información pública bajo la Ley 27.275?",
+    "expected_source": ["LEY-27275"],
+    "expected_article": ["9"],
+    "expected_answer_contains": ["15 días", "quince días", "días hábiles", "prórroga"]
+  },
+  {
+    "question": "¿Qué consagra el artículo 14 bis de la Constitución Nacional respecto a la protección del trabajo y los sindicatos?",
+    "expected_source": "LEY-24430",
+    "expected_article": "14 bis",
+    "expected_answer_contains": ["condiciones dignas", "trabajo", "sindicatos", "retribución justa"]
+  },
+  {
+    "question": "¿Cuáles son los elementos constitutivos del delito de estafa según el Código Penal argentino?",
+    "expected_source": "LEY-11179",
+    "expected_article": "172",
+    "expected_answer_contains": ["ardid", "engaño", "defraudare", "estafa"]
+  },
+  {
+    "question": "¿Cómo sanciona el Código Penal el acceso ilegítimo a un sistema o banco de datos informáticos según la Ley de Delitos Informáticos 26.388?",
+    "expected_source": ["LEY-26388", "LEY-11179"],
+    "expected_article": ["153 bis", "153"],
+    "expected_answer_contains": ["acceso", "informático", "sistema", "autorización"]
+  },
+  {
+    "question": "¿Qué medidas preventivas urgentes puede ordenar un juez ante una denuncia por violencia de género según la Ley 26.485?",
+    "expected_source": ["LEY-26485", "LEY-24417"],
+    "expected_article": ["26", "4"],
+    "expected_answer_contains": ["exclusión", "prohibición de acercamiento", "perimetral", "cautelar"]
+  },
+  {
+    "question": "¿Hasta qué semana de gestación se puede acceder a la Interrupción Voluntaria del Embarazo según la Ley 27.610?",
+    "expected_source": ["LEY-27610"],
+    "expected_article": ["4"],
+    "expected_answer_contains": ["semana catorce", "14", "voluntaria", "embarazo"]
+  },
+  {
+    "question": "¿Quién tiene prioridad de paso en una encrucijada urbana según la Ley Nacional de Tránsito 24.449 y cuáles son sus excepciones?",
+    "expected_source": ["LEY-24449"],
+    "expected_article": ["41"],
+    "expected_answer_contains": ["derecha", "prioridad de paso", "encrucijada"]
+  },
+  {
+    "question": "¿Qué vías recursivas proceden contra una resolución determinativa de oficio de la ARCA / AFIP conforme a la Ley 11.683?",
+    "expected_source": ["LEY-11683"],
+    "expected_article": ["76", "81"],
+    "expected_answer_contains": ["reconsideración", "tribunal fiscal", "tfn", "apelación"]
+  },
+  {
+    "question": "¿Cuáles son las causales de exclusión de pleno derecho del Régimen Simplificado para Pequeños Contribuyentes (Monotributo Ley 24.977)?",
+    "expected_source": ["LEY-24977"],
+    "expected_article": ["20", "21"],
+    "expected_answer_contains": ["exclusión", "ingresos brutos", "monotributo", "parámetros"]
+  },
+  {
+    "question": "¿Cuál es el plazo para contestar la demanda en un juicio ordinario según el Código Procesal Civil y Comercial de la Nación?",
+    "expected_source": ["LEY-17454"],
+    "expected_article": ["338"],
+    "expected_answer_contains": ["quince días", "15 días", "traslado", "demanda"]
+  },
+  {
+    "question": "¿Cuáles son los precios de pasajes de avión y hoteles para viajar de vacaciones a Madrid?",
     "expected_source": null,
     "expected_article": null,
     "expected_answer_contains": ["derecho", "legal", "argentin", "leyes"]
