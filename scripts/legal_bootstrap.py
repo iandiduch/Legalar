@@ -41,23 +41,67 @@ from app.services.rag_service import (
 
 logger = logging.getLogger("legal_bootstrap")
 
-# Catálogo de leyes troncales del ordenamiento jurídico argentino
+# Catálogo de leyes troncales del ordenamiento jurídico argentino y reformas de alto impacto
 PRIORITY_LAWS = [
-    "LEY-24430",   # Constitución de la Nación Argentina
-    "LEY-26994",   # Código Civil y Comercial de la Nación
-    "DEC-390-1976", # Ley de Contrato de Trabajo (LCT - Texto Ordenado 1976 vigente, incluye Art. 245)
-    "LEY-20744",   # Ley de Contrato de Trabajo (Sanción histórica originaria 1974)
-    "LEY-19550",   # Ley General de Sociedades
-    "LEY-24240",   # Ley de Defensa del Consumidor
-    "LEY-11179",   # Código Penal de la Nación
-    "LEY-24522",   # Ley de Concursos y Quiebras
-    "LEY-27442",   # Ley de Defensa de la Competencia
+    # 1. Constitucional y Tratados
+    "LEY-24430",    # Constitución de la Nación Argentina
+
+    # 2. Civil, Comercial y Sociedades
+    "LEY-26994",    # Código Civil y Comercial de la Nación (CCyC)
+    "LEY-19550",    # Ley General de Sociedades
+    "LEY-27349",    # Apoyo al Capital Emprendedor (SAS - Sociedades por Acciones Simplificadas)
+    "LEY-24522",    # Ley de Concursos y Quiebras
+    "LEY-25065",    # Ley de Tarjetas de Crédito
+    "LEY-24452",    # Ley de Cheques
+    "LEY-17801",    # Registro de la Propiedad Inmueble
+    "LEY-22362",    # Ley de Marcas y Designaciones
+    "LEY-11723",    # Régimen Legal de la Propiedad Intelectual
+    "LEY-25506",    # Firma Digital y Documentos Electrónicos
+    "LEY-17418",    # Ley de Seguros
+
+    # 3. Laboral y Seguridad Social
+    "LEY-27802",    # Ley de Modernización Laboral (2026 - Reforma LCT 245, plataformas, cese)
+    "DEC-390-1976", # Ley de Contrato de Trabajo (LCT - T.O. Decreto 390/1976)
+    "LEY-20744",    # Ley de Contrato de Trabajo (Sanción originaria 1974)
+    "LEY-24557",    # Ley de Riesgos del Trabajo (ART)
+    "LEY-24013",    # Ley Nacional de Empleo
+    "LEY-25877",    # Régimen Laboral / Ordenamiento del Trabajo
+    "LEY-23551",    # Asociaciones Sindicales y Tutela Sindical
+    "LEY-14786",    # Conciliación Obligatoria en Conflictos de Trabajo
+    "LEY-24635",    # SECLO (Conciliación Laboral Previa Obligatoria)
+    "LEY-11544",    # Jornada de Trabajo Legal
+    "LEY-26844",    # Régimen Especial de Casas Particulares
+    "LEY-24241",    # Sistema Integrado de Jubilaciones y Pensiones
+
+    # 4. Reformas Estructurales y Emergencia
     "DNU-70-2023",  # DNU Bases para la Reconstrucción de la Economía Argentina
-    "LEY-27742",   # Ley de Bases y Puntos de Partida para la Libertad de los Argentinos
-    "LEY-24557",   # Ley de Riesgos del Trabajo (ART)
-    "LEY-24013",   # Ley Nacional de Empleo
-    "LEY-25326",   # Protección de Datos Personales
-    "LEY-27551",   # Ley de Alquileres
+    "LEY-27742",    # Ley de Bases y Puntos de Partida para la Libertad de los Argentinos
+    "LEY-27743",    # Paquete Fiscal 2024 (Medidas Fiscales Paliativas, Blanqueo y Ganancias)
+    "LEY-27737",    # Reforma de Alquileres de Octubre 2023 (Derecho Transitorio)
+    "LEY-27551",    # Ley de Alquileres de 2020 (Norma derogada para derecho transitorio)
+
+    # 5. Consumo, Datos y Competencia
+    "LEY-24240",    # Ley de Defensa del Consumidor
+    "LEY-27442",    # Ley de Defensa de la Competencia
+    "LEY-25326",    # Protección de Datos Personales (Habeas Data)
+    "LEY-27275",    # Acceso a la Información Pública
+
+    # 6. Penal, Ciberdelito y Género
+    "LEY-11179",    # Código Penal de la Nación
+    "LEY-26388",    # Delitos Informáticos y Ciberdelitos
+    "LEY-27401",    # Responsabilidad Penal de las Personas Jurídicas (Compliance)
+    "LEY-26485",    # Protección Integral contra la Violencia hacia las Mujeres
+    "LEY-24417",    # Protección contra la Violencia Familiar
+    "LEY-26061",    # Protección Integral de Derechos de Niñas, Niños y Adolescentes
+    "LEY-27610",    # Acceso a la Interrupción Voluntaria del Embarazo (IVE)
+    "LEY-26529",    # Derechos del Paciente e Historia Clínica
+    "LEY-24449",    # Ley Nacional de Tránsito y Seguridad Vial
+
+    # 7. Procesal y Fiscal
+    "LEY-17454",    # Código Procesal Civil y Comercial de la Nación (CPCCN)
+    "LEY-23984",    # Código Procesal Penal de la Nación (CPPN)
+    "LEY-11683",    # Procedimiento Tributario (ARCA / AFIP)
+    "LEY-24977",    # Régimen Simplificado para Pequeños Contribuyentes (Monotributo)
 ]
 
 
@@ -158,7 +202,7 @@ async def ingest_single_law(
                         "law_title": parsed.title,
                         "article_number": art.article_number,
                         "epigraph": art.epigraph or "",
-                        "status": parsed.status,
+                        "status": art.status,
                         "rank": parsed.rank,
                         "country": parsed.country,
                         "infoleg_url": parsed.source or "",
@@ -191,7 +235,7 @@ async def ingest_single_law(
             title_section=art.hierarchy.title_section,
             chapter=art.hierarchy.chapter,
             section=art.hierarchy.section,
-            status=parsed.status,
+            status=art.status,
             content_hash=art.content_hash,
             pinecone_id=p_id,
             article_metadata={
