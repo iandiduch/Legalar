@@ -7,6 +7,7 @@ scripts/init_db.py, nunca desde el lifespan de main.py."""
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
