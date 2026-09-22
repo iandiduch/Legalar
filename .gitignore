@@ -25,3 +25,4 @@ repo_legalize_ar/
 # Frontend (mantenido en repositorio privado independiente)
 frontend/
 
+evaluation_results.json

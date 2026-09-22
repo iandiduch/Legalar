@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/LangGraph-Legal--Agent-orange?style=for-the-badge&logo=langchain&logoColor=white" alt="LangGraph" />
   <img src="https://img.shields.io/badge/OpenRouter%20%2F%20OpenAI-Flexible_Models-412991?style=for-the-badge&logo=openai&logoColor=white" alt="LLM" />
   <img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge&logo=apache&logoColor=white" alt="Apache 2.0" />
-  <img src="https://img.shields.io/badge/Tests-51_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
+  <img src="https://img.shields.io/badge/Tests-66_Passed-success?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest" />
 </p>
 
 > 🌐 **Chat en Producción & Aplicación Web**: [https://legalar.onys.app](https://legalar.onys.app)
@@ -50,7 +50,7 @@ CHATBOT-LEGALIZE/
 │   └── api/                   # FastAPI Gateway: routers v1 (/legal, /ingest, /prompts, /admin, /health), middlewares y auth
 ├── data/                      # Almacenamiento local: golden_set.json y evaluation_results.json
 ├── scripts/                   # CLI de inicialización (init_db), bootstrap legal (legal_bootstrap) y evaluación (evaluate_rag)
-├── tests/                     # Suite de pruebas automatizadas: unitarias (51 tests), integración, seguridad y persistencia
+├── tests/                     # Suite de pruebas automatizadas: unitarias (66 tests), integración, seguridad y persistencia
 ├── Dockerfile                 # Contenedor multi-stage optimizado para Dokploy (con git y python 3.12)
 ├── docker-compose.yml         # Orquestación local (FastAPI, PostgreSQL 16, Redis, Workers y Phoenix opcional)
 ├── pyproject.toml             # Configuración unificada de herramientas de desarrollo
@@ -489,7 +489,32 @@ python -m scripts.legal_bootstrap --laws COD-CIVIL,COD-TRABAJO
 
 ---
 
-## ⚖️ 13. Descargo de Responsabilidad (Legal Disclaimer)
+## 🚀 13. Roadmap y Futuras Mejoras
+
+A medida que el ecosistema escala de las 46 leyes prioritarias hacia el corpus exhaustivo nacional (~31.000 normas), se contemplan las siguientes mejoras arquitectónicas:
+
+### 1. Grafo de Conocimiento Jurídico (GraphRAG / Knowledge Graph Relacional)
+- **Desacoplamiento Dogmático de Prompts**: Migrar los atajos de descomposición multi-norma actualmente alojados como *few-shot* en `query_expander.md` hacia una tabla relacional estructurada en PostgreSQL (`legal_norm_graph`).
+- **Modelado de Aristas y Relaciones Normativas**: Representar formalmente las conexiones entre Parte General y Parte Especial mediante relaciones dirigidas tipadas:
+  ```text
+  (Estafa / Art. 172 CP)       ----[REGLA_PRESCRIPCIÓN]----> (Art. 62 inc. 2 CP)
+  (DNU 70/2023)                ----[SUSTITUYE]-------------> (Art. 1198 CCyC)
+  (Compra Online a Distancia)  ----[DERECHO_REVOCACIÓN]----> (Art. 34 Ley 24.240)
+  (Garantía Legal de Cosas)    ----[PLAZO_Y_REPARACIÓN]----> (Arts. 11 y 17 Ley 24.240)
+  (Contratos Electrónicos)     ----[SUBSIDIARIO]-----------> (Art. 1110 CCyC)
+  ```
+- **Recorrido Determinístico (Graph Traversal)**: Consulta SQL/Cypher en tiempo submilisegundo para recuperar de forma determinística los artículos complementarios y vigentes antes de ejecutar la búsqueda vectorial.
+
+### 2. Índice de Intenciones Legales Vectorizado
+- **Traducción de Lenguaje Coloquial a Instituto Formal**: Colección o namespace ligero en Pinecone / pgvector entrenado para mapear expresiones populares ciudadanas (*"compré online y vino fallado"*, *"me echaron sin causa"*, *"mi casero me exige pagar en dólares"*) directamente al instituto jurídico dogmático correspondiente.
+- **Subsunción Dinámica sin Prompts Rígidos**: Asignación automática de normas y aristas del grafo a partir de la intención identificada, eliminando la necesidad de heurísticas fijas en los prompts del sistema.
+
+### 3. Cobertura Federal (Leyes y Códigos Provinciales)
+- Ingesta, partición territorial y búsqueda con filtros por provincia (Códigos Procesales Provinciales, Leyes de Procedimiento Administrativo local y tasas de justicia).
+
+---
+
+## ⚖️ 14. Descargo de Responsabilidad (Legal Disclaimer)
 
 > **AVISO LEGAL:** Este sistema de Inteligencia Artificial y motor de RAG legal tiene fines exclusivamente informativos, pedagógicos y de apoyo a la investigación jurídica. Las respuestas generadas por los modelos de lenguaje, el análisis de contratos y las citas normativas suministradas no constituyen dictamen jurídico vinculante, ni asesoramiento legal formal, ni sustituyen en ningún caso el criterio, análisis ni patrocinio letrado obligatorio de un abogado profesional matriculado en la jurisdicción competente. Ni los desarrolladores ni los proveedores de datos asumen responsabilidad por decisiones legales, contractuales o judiciales adoptadas con base en la información brindada por esta herramienta.
 
