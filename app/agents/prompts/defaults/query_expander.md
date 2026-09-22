@@ -12,8 +12,12 @@ Casos paradigmáticos en el derecho argentino:
    - Requiere el régimen indemnizatorio del despido incausado (Art. 245 LCT), preaviso (Arts. 231/232 LCT), integración (Art. 233 LCT) y prescripción bienal (Art. 256 LCT).
    - Canónicos: ['DEC-390-1976:245', 'LEY-20744:245', 'DEC-390-1976:232', 'DEC-390-1976:256'].
 3. CONTRATOS, LOCACIONES Y REFORMA DNU 70/2023 (Código Civil y Comercial / Ley 27.551 / DNU 70/2023):
-   - Art. 1198 CCyC (plazo de locación acordado por las partes o 2 años para destino habitacional), Art. 256 DNU 70/2023 (sustitución de Art. 1198 CCyC), Art. 249 DNU 70/2023 (derogación expresa de la Ley 27.551).
-   - Canónicos: ['LEY-26994:1198', 'DNU-70-2023:256', 'DNU-70-2023:249', 'LEY-27551:3'].
+   - Depósito en garantía y fianza: Art. 1196 CCyC (libertad de partes para acordar cantidad, moneda y forma de devolución al finalizar la locación), sustituido por Art. 255 DNU 70/2023.
+   - Ajustes de precio y moneda de pago: Art. 1199 CCyC (libertad de pactar moneda de curso legal o extranjera y libre elección de cualquier índice de ajuste público o privado en la misma moneda), sustituido por Art. 257 DNU 70/2023.
+   - Plazo de locación: Art. 1198 CCyC (plazo acordado libremente por las partes o supletorio de 2 años para destino habitacional), sustituido por Art. 256 DNU 70/2023.
+   - Resolución anticipada: Art. 1221 CCyC (indemnización del 10% del saldo acumulado), sustituido por Art. 262 DNU 70/2023.
+   - Derogación expresa e integral de la Ley 27.551: Art. 249 DNU 70/2023.
+   - Canónicos según el tema consultado: ['LEY-26994:1196', 'DNU-70-2023:255', 'LEY-26994:1199', 'DNU-70-2023:257', 'LEY-26994:1198', 'DNU-70-2023:256', 'DNU-70-2023:249'].
 4. PRESCRIPCIÓN CIVIL Y COMERCIAL:
    - Art. 2560 CCyC (plazo genérico de 5 años) o plazos especiales (Arts. 2561 a 2564 CCyC) + causales de suspensión/interrupción (Arts. 2539 a 2549 CCyC).
    - Canónicos: ['LEY-26994:2560', 'LEY-26994:2554'].
@@ -29,14 +33,18 @@ Casos paradigmáticos en el derecho argentino:
    - Canónicos: ['LEY-22362:3', 'LEY-22362:14', 'LEY-22362:15', 'LEY-22362:16'].
 
 Instrucciones de clasificación:
-- Si la consulta es puntual, unívoca o no requiere articular reglas generales con figuras especiales:
-  * is_relational = False
-  * sub_queries = [consulta_original]
-  * canonical_articles = []
-- Si la consulta requiere articular normas dogmáticas separadas:
-  * is_relational = True
-  * Genera 2 o 3 sub_queries enfocadas:
-    - Sub-query 1: Dirigida al hecho/delito/contrato específico y su pena o régimen.
-    - Sub-query 2: Dirigida a la regla general de cómputo, plazo o instituto dogmático.
-    - Sub-query 3 (si aplica): Dirigida a causales de inicio, suspensión o interrupción.
-  * Incluye en canonical_articles los identificadores canónicos reconocidos (ej: 'LEY-11179:62').
+- CONSULTAS COMPUESTAS O MULTI-ASPECTO (OBLIGATORIAMENTE is_relational = True):
+  * Si la pregunta del usuario indaga sobre DOS O MÁS aspectos o institutos jurídicos distintos dentro de un contrato, ley o situación jurídica (ej: "ajustes de precio Y depósitos en garantía", "plazos de locación Y rescisión anticipada", "indemnización por despido Y preaviso/vacaciones", "daños y perjuicios Y cláusula penal"):
+    - is_relational = True
+    - Genera una sub-query autónoma y enfocada por CADA aspecto para que los motores de búsqueda léxica y vectorial no omitan ningún instituto (ej: Sub-query 1 para ajustes/precio, Sub-query 2 para depósitos/fianza).
+    - Incluye en canonical_articles los artículos de ambos institutos si son conocidos.
+- CONSULTAS DOGMÁTICAS RELACIONALES (Parte Especial + Parte General) (is_relational = True):
+  * Si la consulta articula una figura específica con reglas de cómputo, prescripción o nulidad:
+    - is_relational = True
+    - Genera 2 o 3 sub-queries complementarias (hecho/delito + regla general).
+- CONSULTAS UNÍVOCAS O PUNTUALES:
+  * Si la consulta refiere a un solo instituto puntual y unívoco sin aspectos adicionales:
+    - is_relational = False
+    - sub_queries = [consulta_original]
+    - canonical_articles = []
+

@@ -189,9 +189,10 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
 
             # B. Búsqueda semántica/léxica: multi-query si es relacional, o estándar si es unívoca
             if analysis.is_relational and len(analysis.sub_queries) > 1:
+                multi_top_k = max(top_k_retrieval, 5 * len(analysis.sub_queries))
                 search_citations = await retriever.search_multi_query(
                     queries=analysis.sub_queries,
-                    top_k=top_k_retrieval,
+                    top_k=multi_top_k,
                 )
             else:
                 search_citations = await retriever.search(
@@ -208,7 +209,7 @@ async def legal_agent_node(state: LegalAgentState, config: RunnableConfig) -> di
                     seen_keys.add(k)
                     merged_citations.append(c)
 
-            citations = merged_citations[:12]
+            citations = merged_citations[:14]
         except Exception as exc:
             logger.error("Error en retriever híbrido: %s", exc)
 

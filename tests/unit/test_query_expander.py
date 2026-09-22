@@ -129,6 +129,37 @@ async def test_expand_legal_query_with_mock_llm():
 
 
 @pytest.mark.asyncio
+async def test_expand_legal_query_multi_aspect_leases_dnu70():
+    """Verifica que consultas compuestas multi-aspecto (precio y depósito) se desglosen con sus dos artículos canónicos."""
+    mock_llm = MagicMock()
+    mock_response = LegalRelationAnalysis(
+        question_type="general",
+        is_relational=True,
+        sub_queries=[
+            "ajustes de precio indice actualizacion locacion habitacional DNU 70 2023 articulo 1199 codigo civil y comercial",
+            "depositos en garantia fianza devolucion locacion habitacional DNU 70 2023 articulo 1196 codigo civil y comercial",
+        ],
+        canonical_articles=["LEY-26994:1196", "DNU-70-2023:255", "LEY-26994:1199", "DNU-70-2023:257", "DNU-70-2023:249"],
+        reasoning="La consulta combina dos institutos independientes: depósitos en garantía (Art. 1196 / 255 DNU) y ajustes de precio (Art. 1199 / 257 DNU).",
+    )
+
+    mock_structured = MagicMock()
+    mock_structured.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm.with_structured_output = MagicMock(return_value=mock_structured)
+
+    query = "¿Cómo quedaron regulados los ajustes de precio y los depósitos en garantía en contratos de alquiler habitacional tras el DNU 70/2023?"
+    res = await expand_legal_query(llm=mock_llm, query=query)
+
+    assert res.is_relational is True
+    assert len(res.sub_queries) == 2
+    assert "LEY-26994:1196" in res.canonical_articles
+    assert "LEY-26994:1199" in res.canonical_articles
+    assert "DNU-70-2023:255" in res.canonical_articles
+    assert "DNU-70-2023:257" in res.canonical_articles
+
+
+
+@pytest.mark.asyncio
 async def test_general_inquiry_node_returns_empty_citations():
     """Valida que general_inquiry_node responda cordialmente con cero citas normativas."""
     from app.agents.legal.general_inquiry import general_inquiry_node

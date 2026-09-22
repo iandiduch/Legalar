@@ -1,6 +1,7 @@
 """Nodo Validador Jurídico: Auditoría estricta de citas, vigencia actual y sustento fáctico."""
 
 import logging
+import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -101,14 +102,26 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
                     bullets = "\n".join(f"- ⚠️ {cn}" for cn in clean_notes)
                     final_answer = f"{final_answer}\n\n> [!WARNING]\n> **Observaciones de Auditoría Jurídica:**\n{bullets}\n"
         elif check.warning_notes:
-            vigencia_warnings = [
-                w.strip().lstrip("-* ").lstrip("⚠️ ").strip()
-                for w in check.warning_notes
-                if any(k in w.lower() for k in ("derog", "vigente", "reforma", "dnu"))
-            ]
-            clean_vigencia = [vw[:217] + "..." if len(vw) > 220 else vw for vw in vigencia_warnings if vw]
-            if clean_vigencia and not any(vw in final_answer for vw in clean_vigencia):
-                warning_bullets = "\n".join(f"- ⚠️ {w}" for w in clean_vigencia)
+            vigencia_warnings = []
+            final_lower = final_answer.lower()
+            for w in check.warning_notes:
+                vw = w.strip().lstrip("-* ").lstrip("⚠️ ").strip()
+                if not any(k in vw.lower() for k in ("derog", "vigente", "reforma", "dnu")):
+                    continue
+                # Si la advertencia menciona un número de ley (ej: '27.551') y la respuesta ya explica su derogación/reforma, evitar duplicación
+                law_nums = re.findall(r"\b\d{4,5}\b", vw)
+                already_addressed = False
+                if law_nums and any(
+                    ln in final_lower and any(dk in final_lower for dk in ("derog", "abrog", "sustitu", "reforma"))
+                    for ln in law_nums
+                ):
+                    already_addressed = True
+
+                if not already_addressed and vw not in final_answer:
+                    vigencia_warnings.append(vw[:217] + "..." if len(vw) > 220 else vw)
+
+            if vigencia_warnings:
+                warning_bullets = "\n".join(f"- ⚠️ {w}" for w in vigencia_warnings)
                 final_answer = f"{final_answer}\n\n> [!NOTE]\n> **Estado de Vigencia Normativa:**\n{warning_bullets}\n"
 
         val_summary = LegalValidationSummary(
