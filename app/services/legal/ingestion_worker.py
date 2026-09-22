@@ -41,7 +41,10 @@ class LegalIngestionService:
         self.sessionmaker = sessionmaker
         self.embeddings = embeddings_client
         self.pinecone = pinecone_client
-        self.git_sync = GitSyncService(settings.LEGALIZE_REPO_PATH)
+        self.git_sync = GitSyncService(
+            repo_path=settings.LEGALIZE_REPO_PATH,
+            country_code=settings.LEGALIZE_COUNTRY_CODE,
+        )
         self.namespace = settings.PINECONE_LEGAL_NAMESPACE
 
     async def ingest_law_file(

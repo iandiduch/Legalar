@@ -94,7 +94,10 @@ async def lifespan(app: FastAPI):
     )
 
     # Motor de diff local sobre Git y cliente Legalize API con fallback
-    app.state.local_diff_engine = LocalGitDiffEngine(repo_path=settings.LEGALIZE_REPO_PATH)
+    app.state.local_diff_engine = LocalGitDiffEngine(
+        repo_path=settings.LEGALIZE_REPO_PATH,
+        country_code=settings.LEGALIZE_COUNTRY_CODE,
+    )
     app.state.legalize_api_client = LegalizeApiClient(
         settings=settings,
         local_diff_engine=app.state.local_diff_engine,

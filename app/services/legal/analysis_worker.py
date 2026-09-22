@@ -58,7 +58,10 @@ async def run_worker(settings: Settings) -> None:
         embeddings_client=embeddings_client,
         sessionmaker=sessionmaker,
     )
-    local_diff_engine = LocalGitDiffEngine(repo_path=settings.LEGALIZE_REPO_PATH)
+    local_diff_engine = LocalGitDiffEngine(
+        repo_path=settings.LEGALIZE_REPO_PATH,
+        country_code=settings.LEGALIZE_COUNTRY_CODE,
+    )
     diff_client = LegalizeApiClient(
         settings=settings,
         local_diff_engine=local_diff_engine,

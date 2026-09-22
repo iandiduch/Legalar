@@ -61,7 +61,10 @@ class LegalizeApiClient:
         self.base_url = settings.LEGALIZE_API_BASE_URL.rstrip("/")
         self.api_key = settings.LEGALIZE_API_KEY.get_secret_value() if settings.LEGALIZE_API_KEY else ""
         self.monthly_limit = settings.LEGALIZE_API_MONTHLY_LIMIT
-        self._local_engine = local_diff_engine or LocalGitDiffEngine(settings.LEGALIZE_REPO_PATH)
+        self._local_engine = local_diff_engine or LocalGitDiffEngine(
+            repo_path=settings.LEGALIZE_REPO_PATH,
+            country_code=settings.LEGALIZE_COUNTRY_CODE,
+        )
         self._calls_this_month = 0
         self._sdk_client: AsyncLegalize | None = None
 
