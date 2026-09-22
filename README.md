@@ -430,25 +430,30 @@ graph TD
 
 ### Pasos para conectar un nuevo país:
 
-#### 1. Clonar el repositorio nacional de Legalize
-En la raíz del proyecto, clonar el repositorio Git de la legislación del país destino:
-```bash
-# Ejemplo: República de Chile
-git clone https://github.com/legalize-dev/legalize-cl repo_legalize_cl
-
-# Ejemplo: República Oriental del Uruguay
-git clone https://github.com/legalize-dev/legalize-uy repo_legalize_uy
-```
-
-#### 2. Declarar las variables en tu archivo `.env`
+#### 1. Declarar las variables en tu archivo `.env` (o panel de Dokploy)
 Definir el código de país ISO, el nombre de la jurisdicción, la ruta del repositorio y el namespace vectorial:
 ```env
-# Configuración para Chile
+# Configuración de ejemplo para la República de Chile
 LEGALIZE_COUNTRY_CODE=cl
 LEGALIZE_COUNTRY_NAME="República de Chile"
 LEGALIZE_REPO_PATH=repo_legalize_cl
+# Opcional: URL personalizada si usas un mirror o fork (se autoderiva a https://github.com/legalize-dev/legalize-${LEGALIZE_COUNTRY_CODE}.git)
+# LEGALIZE_REPO_URL=https://github.com/legalize-dev/legalize-cl.git
 PINECONE_LEGAL_NAMESPACE=cl-legislation
 ```
+
+#### 2. Clonación del Repositorio de Leyes
+- **Con Docker / Dokploy (100% Autónomo y Automático)**:
+  No requiere ninguna clonación manual previa. Al iniciar el stack (`docker compose up -d` o deploy en Dokploy), el script `docker-entrypoint.sh` detecta dinámicamente `LEGALIZE_COUNTRY_CODE` (o `LEGALIZE_REPO_URL`), monta el volumen persistente en `/app/${LEGALIZE_REPO_PATH}` y clona por única vez el repositorio oficial correspondiente (`--depth 50` para máxima velocidad).
+- **Desarrollo Local Nativo (Sin Docker)**:
+  Si se ejecuta directamente en la máquina anfitriona sin contenedores, clonar el repositorio en la raíz:
+  ```bash
+  # Ejemplo: República de Chile
+  git clone https://github.com/legalize-dev/legalize-cl repo_legalize_cl
+
+  # Ejemplo: República Oriental del Uruguay
+  git clone https://github.com/legalize-dev/legalize-uy repo_legalize_uy
+  ```
 
 #### 3. Personalizar directivas en Markdown (`app/agents/prompts/defaults/`)
 Todos los system prompts del pipeline están 100% desacoplados de Python en archivos Markdown editables:

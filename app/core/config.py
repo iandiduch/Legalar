@@ -173,11 +173,20 @@ class Settings(BaseSettings):
     LEGALIZE_COUNTRY_CODE: str = "ar"
     LEGALIZE_COUNTRY_NAME: str = "República Argentina"
     LEGALIZE_REPO_PATH: str = "repo_legalize_ar"
+    LEGALIZE_REPO_URL: str | None = None
     LEGALIZE_API_BASE_URL: str = "https://legalize.dev"
     LEGALIZE_API_KEY: SecretStr = Field(default=SecretStr(""))
     LEGALIZE_API_MONTHLY_LIMIT: int = 2000
     PINECONE_LEGAL_NAMESPACE: str = "ar-legislation"
     PROMPT_DEFAULTS_DIR: str = "app/agents/prompts/defaults"
+
+    @property
+    def effective_repo_url(self) -> str:
+        """URL canónica de Git para el repositorio de leyes según la jurisdicción."""
+        if self.LEGALIZE_REPO_URL:
+            return self.LEGALIZE_REPO_URL
+        code = (self.LEGALIZE_COUNTRY_CODE or "ar").lower().strip()
+        return f"https://github.com/legalize-dev/legalize-{code}.git"
 
     # --- Observabilidad & Métricas ---
     PHOENIX_COLLECTOR_ENDPOINT: str = "http://localhost:6006/v1/traces"
