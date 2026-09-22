@@ -86,16 +86,29 @@ async def legal_validator_node(state: LegalAgentState, config: RunnableConfig) -
             logger.info("Validador devolvió síntesis corta (%d chars); preservando borrador original.", len(synthesized))
             final_answer = draft
 
-        # Si el validador determinó que la respuesta no es válida, adjuntar observaciones de auditoría
+        # Si el validador determinó que la respuesta no es válida, adjuntar observaciones de auditoría breves
         if not check.is_valid:
-            notes = check.warning_notes + check.unsupported_claims
-            if notes and "Observaciones de Auditoría Jurídica" not in final_answer:
-                bullets = "\n".join(f"- ⚠️ {n}" for n in notes)
-                final_answer = f"{final_answer}\n\n> [!WARNING]\n> **Observaciones de Auditoría Jurídica:**\n{bullets}\n"
+            raw_notes = check.warning_notes + check.unsupported_claims
+            if raw_notes and "Observaciones de Auditoría Jurídica" not in final_answer:
+                clean_notes = []
+                for n in raw_notes:
+                    item = n.strip().lstrip("-* ").lstrip("⚠️ ").strip()
+                    if item:
+                        if len(item) > 220:
+                            item = item[:217] + "..."
+                        clean_notes.append(item)
+                if clean_notes:
+                    bullets = "\n".join(f"- ⚠️ {cn}" for cn in clean_notes)
+                    final_answer = f"{final_answer}\n\n> [!WARNING]\n> **Observaciones de Auditoría Jurídica:**\n{bullets}\n"
         elif check.warning_notes:
-            vigencia_warnings = [w for w in check.warning_notes if "derog" in w.lower() or "vigente" in w.lower() or "reforma" in w.lower()]
-            if vigencia_warnings and not any(w in final_answer for w in vigencia_warnings):
-                warning_bullets = "\n".join(f"- ⚠️ {w}" for w in vigencia_warnings)
+            vigencia_warnings = [
+                w.strip().lstrip("-* ").lstrip("⚠️ ").strip()
+                for w in check.warning_notes
+                if any(k in w.lower() for k in ("derog", "vigente", "reforma", "dnu"))
+            ]
+            clean_vigencia = [vw[:217] + "..." if len(vw) > 220 else vw for vw in vigencia_warnings if vw]
+            if clean_vigencia and not any(vw in final_answer for vw in clean_vigencia):
+                warning_bullets = "\n".join(f"- ⚠️ {w}" for w in clean_vigencia)
                 final_answer = f"{final_answer}\n\n> [!NOTE]\n> **Estado de Vigencia Normativa:**\n{warning_bullets}\n"
 
         val_summary = LegalValidationSummary(
