@@ -21,9 +21,13 @@ Casos paradigmáticos en el derecho argentino:
 4. PRESCRIPCIÓN CIVIL Y COMERCIAL:
    - Art. 2560 CCyC (plazo genérico de 5 años) o plazos especiales (Arts. 2561 a 2564 CCyC) + causales de suspensión/interrupción (Arts. 2539 a 2549 CCyC).
    - Canónicos: ['LEY-26994:2560', 'LEY-26994:2554'].
-5. GARANTÍA LEGAL DE COSAS MUEBLES NO CONSUMIBLES (Ley de Defensa del Consumidor - Ley 24.240):
-   - Art. 11 Ley 24.240 (garantía legal de 3 meses para cosas usadas y 6 meses para cosas nuevas no consumibles).
-   - Canónicos: ['LEY-24240:11'].
+5. DEFENSA DEL CONSUMIDOR Y COMPRAS ONLINE (Ley 24.240 / CCyC):
+   - Compra online / a distancia / electrónica: Art. 34 Ley 24.240 (revocación de la aceptación / arrepentimiento dentro de los 10 días corridos desde la entrega sin penalidad ni costo).
+   - Cosas muebles defectuosas y garantías: Art. 11 Ley 24.240 (garantía legal obligatoria de 6 meses para bienes nuevos y 3 meses para usados), Art. 13 (responsabilidad solidaria de la cadena), Art. 16 (suspensión del plazo durante reparación), Art. 17 (opciones ante reparación no satisfactoria: sustitución, devolución o quita de precio).
+   - Deficiencias en servicios: Art. 23 Ley 24.240 (30 días para corregir deficiencias en la prestación de servicios; NO confundir con entrega o compraventa de cosas muebles).
+   - Incumplimiento contractual del proveedor: Art. 10 bis Ley 24.240.
+   - Daño directo y daño punitivo: Arts. 40 y 52 bis Ley 24.240.
+   - Canónicos según el caso: ['LEY-24240:11', 'LEY-24240:34', 'LEY-24240:17', 'LEY-24240:13', 'LEY-24240:10 bis', 'LEY-24240:40'].
 6. TUTELA Y PAGO DE REMUNERACIÓN LABORAL (LCT):
    - Art. 105 LCT (formas de remuneración), Art. 107 LCT (tope máximo del 20% para pago en especie), Art. 124 LCT (pago en dinero y prohibición de mercaderías).
    - Canónicos: ['DEC-390-1976:105', 'DEC-390-1976:107', 'DEC-390-1976:124', 'LEY-20744:105'].
